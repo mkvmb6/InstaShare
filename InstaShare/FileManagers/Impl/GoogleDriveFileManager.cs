@@ -145,7 +145,8 @@ namespace InstaShare.Services
             // Step 2: Upload all files to their respective folders
             var allFiles = Directory.GetFiles(localRootPath, "*", SearchOption.AllDirectories);
 
-            foreach (var filePath in allFiles)
+            // Parallel upload of files to their respective folders
+            await Parallel.ForEachAsync(allFiles, async (filePath, cancellationToken) =>
             {
                 string fileFolder = Path.GetDirectoryName(filePath);
                 string driveParentId = folderMap[fileFolder];
@@ -153,19 +154,19 @@ namespace InstaShare.Services
                 var fileMetadata = new Google.Apis.Drive.v3.Data.File()
                 {
                     Name = Path.GetFileName(filePath),
-                    Parents = new List<string> { driveParentId }
+                    Parents = [driveParentId]
                 };
 
                 using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
                 {
                     var uploadRequest = _driveService.Files.Create(fileMetadata, stream, "application/octet-stream");
                     uploadRequest.Fields = "id";
-                    await uploadRequest.UploadAsync();
+                    await uploadRequest.UploadAsync(cancellationToken);
                 }
 
                 string relativePath = Path.GetRelativePath(localRootPath, filePath);
                 statusCallback?.Invoke($"Uploaded: {relativePath}", shareableLink);
-            }
+            });
 
             return (rootDriveFolderId, shareableLink);
         }
