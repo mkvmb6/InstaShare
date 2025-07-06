@@ -8,13 +8,18 @@ namespace InstaShare.Schedulers
     class FileDeletionScheduler
     {
         IFileManager _fileManager;
+        private string uploadedFilesJsonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Constants.UploadedFilesJson);
         public FileDeletionScheduler()
         {
             _fileManager = new GoogleDriveFileManager();
         }
         public async Task DeleteExpiredFiles()
         {
-            var list = JsonConvert.DeserializeObject<List<UploadRecord>>(File.ReadAllText(Constants.UploadedFilesJson));
+            if (!File.Exists(uploadedFilesJsonPath))
+            {
+                return; // No records to process
+            }
+            var list = JsonConvert.DeserializeObject<List<UploadRecord>>(File.ReadAllText(uploadedFilesJsonPath));
             var now = DateTime.UtcNow;
             var updatedList = new List<UploadRecord>();
 
@@ -30,17 +35,16 @@ namespace InstaShare.Schedulers
                 }
             }
 
-            File.WriteAllText(Constants.UploadedFilesJson, JsonConvert.SerializeObject(updatedList));
+            File.WriteAllText(uploadedFilesJsonPath, JsonConvert.SerializeObject(updatedList));
         }
 
         public void SaveFileRecord(string fileId, string filePath, string link)
         {
-            string jsonPath = Constants.UploadedFilesJson;
             List<UploadRecord> records = new List<UploadRecord>();
 
-            if (File.Exists(jsonPath))
+            if (File.Exists(uploadedFilesJsonPath))
             {
-                string existingData = File.ReadAllText(jsonPath);
+                string existingData = File.ReadAllText(uploadedFilesJsonPath);
                 if (!string.IsNullOrWhiteSpace(existingData))
                 {
                     records = JsonConvert.DeserializeObject<List<UploadRecord>>(existingData);
@@ -55,7 +59,7 @@ namespace InstaShare.Schedulers
                 UploadTimeUtc = DateTime.UtcNow
             });
 
-            File.WriteAllText(jsonPath, JsonConvert.SerializeObject(records, Formatting.Indented));
+            File.WriteAllText(uploadedFilesJsonPath, JsonConvert.SerializeObject(records, Formatting.Indented));
         }
 
     }

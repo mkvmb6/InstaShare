@@ -175,17 +175,17 @@ namespace InstaShare.Services
             await _driveService.Files.Delete(fileId).ExecuteAsync();
         }
 
-        private async Task Authenticate()
+        private void Authenticate()
         {
             var executingAssembly = Assembly.GetExecutingAssembly();
-            var credPath = Path.Combine(Path.GetDirectoryName(executingAssembly.Location), "token.json");
+            var credPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "token.json");
             using var stream = executingAssembly.GetManifestResourceStream("InstaShare.credentials.json");
-            var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
+            var credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
                 GoogleClientSecrets.FromStream(stream).Secrets,
                 Scopes,
                 "user",
                 CancellationToken.None,
-                new FileDataStore(credPath, true));
+                new FileDataStore(credPath, true)).Result;
 
             _driveService = new DriveService(new BaseClientService.Initializer()
             {
