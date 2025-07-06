@@ -74,6 +74,11 @@ namespace InstaShare.Services
                 return result.Files[0].Id; // Folder already exists
             }
 
+            return await CreateFolder(folderName, parentFolderId);
+        }
+
+        private async Task<string> CreateFolder(string folderName, string? parentFolderId)
+        {
             // Create new folder
             var fileMetadata = new Google.Apis.Drive.v3.Data.File()
             {
@@ -108,7 +113,7 @@ namespace InstaShare.Services
         public async Task<(string folderId, string sharedLink)> UploadFolderWithStructure(string localRootPath, string driveRootFolderName, Action<string, string> statusCallback = null)
         {
             var rootDriveFolderId = await GetOrCreateFolder(driveRootFolderName);
-            var currentFolderId = await GetOrCreateFolder(Path.GetFileName(localRootPath), rootDriveFolderId);
+            var currentFolderId = await CreateFolder(Path.GetFileName(localRootPath), rootDriveFolderId);
             var folderMap = new Dictionary<string, string>(); // local folder → Drive folder ID
             folderMap[localRootPath] = currentFolderId;
             var shareableLink = await ShareFolderAndGetLink(currentFolderId);

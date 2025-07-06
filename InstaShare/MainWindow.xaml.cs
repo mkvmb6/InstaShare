@@ -25,18 +25,26 @@ namespace InstaShare
             if (dlg.ShowDialog() == true)
             {
                 var filePath = dlg.FileName;
-                SelectedPathText.Text = "Uploading...";
+                SelectedPathText.Text = "Generating link...";
 
                 var folderId = await fileManager.GetOrCreateFolder(Constants.AppName);
                 var (fileId, link) = await fileManager.UploadFile(filePath, folderId, (progress, sharedLink) =>
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        SelectedPathText.Text = $"Uploading: {progress:0.0}%\n" + sharedLink;
+                        SelectedPathText.Text = $"Uploading: {progress:0.0}%";
+                        LinkTextBox.Text = sharedLink;
+                        LinkTextBox.Visibility = Visibility.Visible;
+                        CopyLinkButton.Visibility = Visibility.Visible;
+
+
                     });
                 });
 
-                SelectedPathText.Text = "Uploaded! Link:\n" + link;
+                SelectedPathText.Text = "Uploaded!";
+                LinkTextBox.Text = link;
+                LinkTextBox.Visibility = Visibility.Visible;
+                CopyLinkButton.Visibility = Visibility.Visible;
 
                 // Store metadata for deletion later
                 fileDeletionScheduler.SaveFileRecord(fileId, filePath, link);
@@ -55,17 +63,31 @@ namespace InstaShare
             if (dlg.ShowDialog() == true)
             {
                 var selectedFolderPath = dlg.FolderName;
-                SelectedPathText.Text = "Uploading Folder: " + selectedFolderPath;
+                SelectedPathText.Text = "Generating link...";
                 var (folderId, link) = await fileManager.UploadFolderWithStructure(selectedFolderPath, Constants.AppName, (status, shareLink) =>
                 {
-                    Dispatcher.Invoke(() => SelectedPathText.Text = status + "\n" + shareLink);
+                    Dispatcher.Invoke(() =>
+                    {
+                        SelectedPathText.Text = status;
+                        LinkTextBox.Text = shareLink;
+                        LinkTextBox.Visibility = Visibility.Visible;
+                        CopyLinkButton.Visibility = Visibility.Visible;
+                    });
                 });
 
-                SelectedPathText.Text = $"✅ Folder uploaded!\n🔗 Link: {link}";
+                SelectedPathText.Text = $"✅ Folder uploaded!";
+                LinkTextBox.Text = link;
+                LinkTextBox.Visibility = Visibility.Visible;
+                CopyLinkButton.Visibility = Visibility.Visible;
                 fileDeletionScheduler.SaveFileRecord(folderId, selectedFolderPath, link);
             }
 
         }
+        private void CopyLinkButton_Click(object sender, RoutedEventArgs e)
+        {
+            Clipboard.SetText(LinkTextBox.Text);
+        }
+
 
         private void DeleteExpired_Click(object sender, RoutedEventArgs e)
         {
