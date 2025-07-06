@@ -1,14 +1,7 @@
-﻿using Microsoft.Win32;
-using System.Text;
+﻿using InstaShare.Schedulers;
+using InstaShare.Services;
+using Microsoft.Win32;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 
 namespace InstaShare
 {
@@ -17,20 +10,37 @@ namespace InstaShare
     /// </summary>
     public partial class MainWindow : Window
     {
+        private IFileManager fileManager;
+        private FileDeletionScheduler fileDeletionScheduler;
         public MainWindow()
         {
             InitializeComponent();
+            fileManager = new GoogleDriveFileManager();
+            fileDeletionScheduler = new FileDeletionScheduler();
         }
 
-        private void SelectFile_Click(object sender, RoutedEventArgs e)
+        private async void SelectFile_Click(object sender, RoutedEventArgs e)
         {
             OpenFileDialog dlg = new OpenFileDialog();
-            dlg.Title = "Select a File to Upload";
             if (dlg.ShowDialog() == true)
             {
-                string selectedFilePath = dlg.FileName;
-                SelectedPathText.Text = "Selected File: " + selectedFilePath;
-                // TODO: Pass this path to your upload logic
+                var filePath = dlg.FileName;
+                SelectedPathText.Text = "Uploading...";
+
+                var folderId = await fileManager.GetOrCreateFolder(Constants.AppName);
+                var (fileId, link) = await fileManager.UploadFile(filePath, folderId, (progress) =>
+                {
+                    System.Diagnostics.Debug.WriteLine($"Upload progress: {progress:0.0}%");
+                    Dispatcher.Invoke(() =>
+                    {
+                        SelectedPathText.Text = $"Uploading: {progress:0.0}%";
+                    });
+                });
+
+                SelectedPathText.Text = "Uploaded! Link:\n" + link;
+
+                // Store metadata for deletion later
+                fileDeletionScheduler.SaveFileRecord(fileId, filePath, link);
             }
         }
 
@@ -48,6 +58,27 @@ namespace InstaShare
             //        // TODO: Pass this path to your folder upload logic
             //    }
             //}
+        }
+
+        private void DeleteExpired_Click(object sender, RoutedEventArgs e)
+        {
+            fileDeletionScheduler.DeleteExpiredFiles().ContinueWith(task =>
+            {
+                if (task.IsCompletedSuccessfully)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        MessageBox.Show("Expired files deleted successfully.");
+                    });
+                }
+                else
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        MessageBox.Show("Error deleting expired files: " + task.Exception?.Message);
+                    });
+                }
+            });
         }
     }
 }
