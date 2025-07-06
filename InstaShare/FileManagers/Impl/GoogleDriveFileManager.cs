@@ -5,6 +5,7 @@ using Google.Apis.Services;
 using Google.Apis.Upload;
 using Google.Apis.Util.Store;
 using System.IO;
+using System.Reflection;
 
 namespace InstaShare.Services
 {
@@ -176,8 +177,9 @@ namespace InstaShare.Services
 
         private async Task Authenticate()
         {
-            using var stream = new FileStream("credentials.json", FileMode.Open, FileAccess.Read);
-            string credPath = "token.json";
+            var executingAssembly = Assembly.GetExecutingAssembly();
+            var credPath = Path.Combine(Path.GetDirectoryName(executingAssembly.Location), "token.json");
+            using var stream = executingAssembly.GetManifestResourceStream("InstaShare.credentials.json");
             var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
                 GoogleClientSecrets.FromStream(stream).Secrets,
                 Scopes,
