@@ -15,7 +15,7 @@ namespace InstaShare.Services
 
         public GoogleDriveFileManager()
         {
-            Authenticate().Wait();
+            Authenticate();
         }
 
         public async Task<(string fileId, string sharedLink)> UploadFile(string filePath, string parentFolderId, Action<double, string> reportProgress = null)

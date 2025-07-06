@@ -1,0 +1,13 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CLASSES_ROOT\*\shell\InstaShare]
+@="InstaShare"
+
+[HKEY_CLASSES_ROOT\*\shell\InstaShare\command]
+@="cmd /c start \"\" \"C:\\InstaShare\\InstaShare.exe\" \"%1\""
+
+[HKEY_CLASSES_ROOT\Directory\shell\InstaShare]
+@="InstaShare"
+
+[HKEY_CLASSES_ROOT\Directory\shell\InstaShare\command]
+@="cmd /c start \"\" \"C:\\InstaShare\\InstaShare.exe\" \"%1\""
