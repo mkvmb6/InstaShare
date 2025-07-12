@@ -10,7 +10,6 @@ namespace InstaShare.FileManagers.Impl
 {
     public static class R2ClientFactory
     {
-        private const string _bucketName = "instashare";
         public static IAmazonS3 CreateR2Client()
         {
             var r2Settings = GetR2Settings();
@@ -29,7 +28,7 @@ namespace InstaShare.FileManagers.Impl
         {
             var request = new GetPreSignedUrlRequest
             {
-                BucketName = _bucketName,
+                BucketName = Constants.R2BucketName,
                 Key = fileName,
                 Verb = HttpVerb.PUT,
                 Expires = DateTime.UtcNow.Add(TimeSpan.FromHours(10)),

@@ -1,4 +1,5 @@
 ﻿using Amazon.S3;
+using Amazon.S3.Model;
 using InstaShare.Services;
 using System.IO;
 using System.Net.Http;
@@ -13,9 +14,14 @@ namespace InstaShare.FileManagers.Impl
         {
             _s3 = R2ClientFactory.CreateR2Client();
         }
-        public Task DeleteFile(string fileId)
+        public async Task DeleteFile(string fileId)
         {
-            throw new NotImplementedException();
+            var request = new DeleteObjectRequest
+            {
+                BucketName = Constants.R2BucketName,
+                Key = fileId
+            };
+            await _s3.DeleteObjectAsync(request);
         }
 
         public Task<string> GetOrCreateFolder(string folderName, string? parentFolderId = null)
