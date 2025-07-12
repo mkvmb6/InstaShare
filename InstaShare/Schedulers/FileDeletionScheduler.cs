@@ -1,4 +1,5 @@
-﻿using InstaShare.Models;
+﻿using InstaShare.FileManagers.Impl;
+using InstaShare.Models;
 using InstaShare.Services;
 using Newtonsoft.Json;
 using System.IO;
@@ -9,9 +10,9 @@ namespace InstaShare.Schedulers
     {
         IFileManager _fileManager;
         private string uploadedFilesJsonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Constants.UploadedFilesJson);
-        public FileDeletionScheduler()
+        public FileDeletionScheduler(IFileManager fileManager)
         {
-            _fileManager = new GoogleDriveFileManager();
+            _fileManager = fileManager;
         }
         public async Task DeleteExpiredFiles()
         {
