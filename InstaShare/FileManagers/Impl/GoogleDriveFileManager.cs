@@ -19,7 +19,7 @@ namespace InstaShare.Services
             Authenticate();
         }
 
-        public async Task<(string fileId, string sharedLink)> UploadFile(string filePath, string parentFolderId, Action<double, string> reportProgress = null)
+        public async Task<(string fileId, string sharedLink)> UploadFile(string filePath, string parentFolderId, Action<double, string, string> reportProgress = null)
         {
             var guid = Guid.NewGuid();
             var folderName = $"{Path.GetFileName(filePath)}-{guid}";
@@ -42,7 +42,7 @@ namespace InstaShare.Services
                 {
                     if (progress.Status == UploadStatus.Uploading)
                     {
-                        reportProgress?.Invoke((double)progress.BytesSent / stream.Length * 100, sharedLink);
+                        reportProgress?.Invoke((double)progress.BytesSent / stream.Length * 100,"", sharedLink);
                     }
                 };
 
