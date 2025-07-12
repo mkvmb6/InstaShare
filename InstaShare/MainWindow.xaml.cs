@@ -20,7 +20,7 @@ namespace InstaShare
         {
             InitializeComponent();
             fileManager = new CloudFlareR2FileManager();
-            fileDeletionScheduler = new FileDeletionScheduler();
+            fileDeletionScheduler = new FileDeletionScheduler(fileManager);
             startupPath = pathToUpload;
             if(!string.IsNullOrEmpty(startupPath))
             {
