@@ -1,4 +1,5 @@
-﻿using InstaShare.Schedulers;
+﻿using InstaShare.FileManagers.Impl;
+using InstaShare.Schedulers;
 using InstaShare.Services;
 using Microsoft.Win32;
 using System.IO;
@@ -18,7 +19,7 @@ namespace InstaShare
         public MainWindow(string? pathToUpload = null)
         {
             InitializeComponent();
-            fileManager = new GoogleDriveFileManager();
+            fileManager = new CloudFlareR2FileManager();
             fileDeletionScheduler = new FileDeletionScheduler();
             startupPath = pathToUpload;
             if(!string.IsNullOrEmpty(startupPath))
@@ -44,12 +45,11 @@ namespace InstaShare
         {
             SelectedPathText.Text = "Generating link...";
 
-            var folderId = await fileManager.GetOrCreateFolder(Constants.AppName);
-            var (fileId, link) = await fileManager.UploadFile(filePath, folderId, (progress, sharedLink) =>
+            var (fileId, link) = await fileManager.UploadFile(filePath, Constants.AppName, (progress, speed, sharedLink) =>
             {
                 Dispatcher.Invoke(() =>
                 {
-                    SelectedPathText.Text = $"Uploading: {progress:0.0}%";
+                    SelectedPathText.Text = $"Uploading: {progress:0.0}% - {speed}";
                     LinkTextBox.Text = sharedLink;
                     LinkTextBox.Visibility = Visibility.Visible;
                     CopyLinkButton.Visibility = Visibility.Visible;
