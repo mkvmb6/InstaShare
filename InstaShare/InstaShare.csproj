@@ -21,9 +21,11 @@
 	  <EmbeddedResource Include="credentials.json">
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </EmbeddedResource>
+	  <EmbeddedResource Include="r2_credentials.json" />
 	</ItemGroup>
 
 	<ItemGroup>
+		<PackageReference Include="AWSSDK.S3" Version="4.0.4.2" />
 		<PackageReference Include="Google.Apis.Auth" Version="1.70.0" />
 		<PackageReference Include="Google.Apis.Drive.v3" Version="1.69.0.3783" />
 		<PackageReference Include="Google.Apis.Oauth2.v2" Version="1.68.0.1869" />

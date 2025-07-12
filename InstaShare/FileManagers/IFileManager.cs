@@ -8,7 +8,7 @@
         /// <param name="filePath">The path of the file to upload.</param>
         /// <param name="reportProgress">An optional action to report upload progress.</param>
         /// <returns>A task that represents the asynchronous operation, containing the URL of the uploaded file.</returns>
-        Task<(string fileId, string sharedLink)> UploadFile(string filePath, string parentFolderId, Action<double, string> reportProgress = null);
+        Task<(string fileId, string sharedLink)> UploadFile(string filePath, string parentFolderId, Action<double, string, string> reportProgress = null);
 
         /// <summary>
         /// Retrieves the path of an existing folder or creates a new folder if it does not exist.
