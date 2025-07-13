@@ -207,10 +207,18 @@ const FolderViewer = () => {
     setTheme(theme === 'dark' ? 'light' : 'dark');
   };
 
-  if (loading) return <p className="p-4">Loading folder contents...</p>;
+  if (loading) return (
+    <>
+      <div className="p-4 max-w-4xl mx-auto">
+        <h1 className="text-4xl font-semibold mb-4">InstaShare</h1>
+        <p>Loading folder contents...</p>
+      </div>
+    </>
+  );
 
   return (
     <div className="p-4 max-w-4xl mx-auto">
+      <h1 className="text-4xl font-semibold mb-4">InstaShare</h1>
       <div className="flex justify-between items-center mb-2 gap-2 flex-wrap">
         <h2 className="text-xl font-semibold">
           📁 {currentPath || folderId}<span className="text-base font-normal text-muted-foreground ml-2">({formatBytes(getFolderSize())})</span>
