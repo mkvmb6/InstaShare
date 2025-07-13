@@ -45,7 +45,7 @@ namespace InstaShare
         {
             SelectedPathText.Text = "Generating link...";
 
-            var (fileId, link) = await fileManager.UploadFile(filePath, Constants.AppName, (progress, speed, sharedLink) =>
+            var (fileId, link) = await fileManager.UploadFile(filePath, (progress, speed, sharedLink) =>
             {
                 Dispatcher.Invoke(() =>
                 {
@@ -87,7 +87,7 @@ namespace InstaShare
         private async Task UploadFolder(string selectedFolderPath)
         {
             SelectedPathText.Text = "Generating link...";
-            var (folderId, link) = await fileManager.UploadFolderWithStructure(selectedFolderPath, Constants.AppName, (status, shareLink) =>
+            var (folderId, link) = await fileManager.UploadFolderWithStructure(selectedFolderPath, (status, shareLink) =>
             {
                 Dispatcher.Invoke(() =>
                 {
