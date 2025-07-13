@@ -204,7 +204,7 @@ const FolderViewer = () => {
               'Download Individually'
             )}
           </Button>
-          <Button onClick={downloadAllAsZip} disabled={downloading}>
+          <Button onClick={downloadAllAsZip} disabled={downloading || filteredFiles.length <= 1}>
             {downloading ? (
               <span className="flex items-center gap-2"><Loader className="animate-spin" size={16} /> Zipping...</span>
             ) : (
