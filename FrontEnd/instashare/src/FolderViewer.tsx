@@ -5,6 +5,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Loader } from 'lucide-react';
 import { zipSync } from 'fflate';
 import { useNavigate, useParams, Link } from 'react-router-dom';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbSeparator } from './components/ui/breadcrumb';
+import React from 'react';
 
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 B';
@@ -174,20 +176,28 @@ const FolderViewer = () => {
 
   const renderBreadcrumbs = () => {
     const segments = currentPath.split('/').filter(Boolean);
-    const links = [<Link key="root" to={`/view/${folderId}`} className="text-blue-600 hover:underline">{folderId}</Link>];
-
-    segments.reduce((acc: string[], segment, index) => {
-      const path = [...acc, segment].join('/');
-      links.push(
-        <span key={`sep-${index}`}> / </span>,
-        <Link key={`crumb-${index}`} to={`/view/${folderId}/${encodeURIComponent(path)}`} className="text-blue-600 hover:underline">
-          {segment}
-        </Link>
-      );
-      return [...acc, segment];
-    }, []);
-
-    return <div className="mb-4">{links}</div>;
+    return (
+      <Breadcrumb className="mb-4 flex flex-wrap items-center gap-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild>
+            <Link to={`/view/${folderId}`}>{folderId}</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        {segments.map((segment, index) => {
+          const path = segments.slice(0, index + 1).join('/');
+          return (
+            <React.Fragment key={index}>
+              <BreadcrumbSeparator className="flex" />
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link to={`/view/${folderId}/${encodeURIComponent(path)}`}>{segment}</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+            </React.Fragment>
+          );
+        })}
+      </Breadcrumb>
+    );
   };
 
   if (loading) return <p className="p-4">Loading folder contents...</p>;
