@@ -65,6 +65,13 @@ const FolderViewer = () => {
     return files.filter((f: any) => f.path.startsWith(folderPrefix)).length;
   }
 
+  const getFolderSize = (folderName?: string) => {
+    const folderPrefix = (currentPath ? currentPath + '/' : '') + (folderName ? folderName + '/' : '');
+    return files
+      .filter((f: any) => f.path.startsWith(folderPrefix))
+      .reduce((sum, f: any) => sum + (f.size || 0), 0);
+  };
+
   const downloadAllAsZip = async () => {
     setDownloading(true);
     const zipEntries: any = {};
@@ -188,7 +195,9 @@ const FolderViewer = () => {
   return (
     <div className="p-4 max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-2 gap-2 flex-wrap">
-        <h2 className="text-xl font-semibold">📁 {currentPath || folderId}</h2>
+        <h2 className="text-xl font-semibold">
+          📁 {currentPath || folderId}<span className="text-base font-normal text-muted-foreground ml-2">({formatBytes(getFolderSize())})</span>
+        </h2>
         <div className="flex gap-2 flex-wrap">
           <Button onClick={downloadSelectedFiles} disabled={downloadingIndividually || selectedFiles.size === 0}>
             {downloadingIndividually ? (
@@ -221,7 +230,9 @@ const FolderViewer = () => {
           <Card key={`folder-${idx}`} className="p-3 bg-muted cursor-pointer hover:bg-accent" onClick={() => navigate(`/view/${folderId}/${encodeURIComponent((currentPath + '/' + folder).replace(/^\//, ''))}`)}>
             <CardContent className="font-medium flex justify-between items-center">
               <span>📁 {folder}</span>
-              <span className="text-sm text-muted-foreground">{getItemCountInFolder(folder)} item(s)</span>
+              <span className="text-sm text-muted-foreground">
+                {getItemCountInFolder(folder)} item(s) • {formatBytes(getFolderSize(folder))}
+              </span>
             </CardContent>
           </Card>
         ))}
