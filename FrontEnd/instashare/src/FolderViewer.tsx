@@ -1,9 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Loader } from 'lucide-react';
 import { zipSync } from 'fflate';
 import { useNavigate, useParams, Link } from 'react-router-dom';
+
+const formatBytes = (bytes: number) => {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
 
 const FolderViewer = () => {
   const { folderId = '', subPath = '' } = useParams();
@@ -11,6 +20,7 @@ const FolderViewer = () => {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [downloadingIndividually, setDownloadingIndividually] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState(new Set());
   const navigate = useNavigate();
 
   const baseUrl = 'https://instashare.mohitkumarverma.com';
@@ -82,7 +92,6 @@ const FolderViewer = () => {
 
   const downloadAllIndividually = async () => {
     setDownloadingIndividually(true);
-
     for (const file of filteredFiles) {
       try {
         const response = await fetch(file.url);
@@ -95,18 +104,61 @@ const FolderViewer = () => {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-
         URL.revokeObjectURL(url);
-        await new Promise(resolve => setTimeout(resolve, 500)); // Optional delay
+
+        await new Promise(resolve => setTimeout(resolve, 500));
       } catch (e) {
-        console.error('Failed to download', file.path, e);
+        console.error('Failed to download file:', file.path);
       }
     }
-
     setDownloadingIndividually(false);
   };
 
+  const downloadSelectedFiles = async () => {
+    setDownloadingIndividually(true);
+    for (const file of filteredFiles.filter((f: any) => selectedFiles.has(f.path))) {
+      try {
+        const response = await fetch(file.url);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
 
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.path.split('/').pop() || 'file';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (e) {
+        console.error('Failed to download file:', file.path);
+      }
+    }
+    setDownloadingIndividually(false);
+  };
+
+  const toggleFileSelection = (filePath: string) => {
+    setSelectedFiles(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(filePath)) {
+        newSet.delete(filePath);
+      } else {
+        newSet.add(filePath);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleAllSelection = () => {
+    const allPaths = filteredFiles.map((f: any) => f.path);
+    const allSelected = allPaths.every((p: any) => selectedFiles.has(p));
+    if (allSelected) {
+      setSelectedFiles(new Set());
+    } else {
+      setSelectedFiles(new Set(allPaths));
+    }
+  };
 
   const renderBreadcrumbs = () => {
     const segments = currentPath.split('/').filter(Boolean);
@@ -132,12 +184,12 @@ const FolderViewer = () => {
     <div className="p-4 max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-2 gap-2 flex-wrap">
         <h2 className="text-xl font-semibold">📁 {currentPath || folderId}</h2>
-        <div className="flex gap-2">
-          <Button onClick={downloadAllAsZip} disabled={downloading}>
-            {downloading ? (
-              <span className="flex items-center gap-2"><Loader className="animate-spin" size={16} /> Zipping...</span>
+        <div className="flex gap-2 flex-wrap">
+          <Button onClick={downloadSelectedFiles} disabled={downloadingIndividually || selectedFiles.size === 0}>
+            {downloadingIndividually ? (
+              <span className="flex items-center gap-2"><Loader className="animate-spin" size={16} /> Downloading...</span>
             ) : (
-              'Download All as ZIP'
+              'Download Selected'
             )}
           </Button>
           <Button onClick={downloadAllIndividually} disabled={downloadingIndividually}>
@@ -145,6 +197,13 @@ const FolderViewer = () => {
               <span className="flex items-center gap-2"><Loader className="animate-spin" size={16} /> Downloading...</span>
             ) : (
               'Download Individually'
+            )}
+          </Button>
+          <Button onClick={downloadAllAsZip} disabled={downloading}>
+            {downloading ? (
+              <span className="flex items-center gap-2"><Loader className="animate-spin" size={16} /> Zipping...</span>
+            ) : (
+              'Download All as ZIP'
             )}
           </Button>
         </div>
@@ -159,10 +218,27 @@ const FolderViewer = () => {
           </Card>
         ))}
 
+        {filteredFiles.length > 0 && (
+          <label className="flex items-center gap-2 mb-2">
+            <Checkbox
+              checked={filteredFiles.every((f: any) => selectedFiles.has(f.path))}
+              onCheckedChange={toggleAllSelection}>
+            </Checkbox>
+            <span className="text-sm">Select All</span>
+          </label>
+        )}
+
         {filteredFiles.map((file: any, index: number) => (
           <Card key={index} className="p-3">
-            <CardContent className="flex items-center justify-between">
-              <span className="truncate max-w-xs" title={file.path}>📄 {file.path.split('/').pop()}</span>
+            <CardContent className="flex items-center justify-between gap-4">
+              <label className="flex items-center gap-2">
+                <Checkbox
+                  checked={selectedFiles.has(file.path)}
+                  onCheckedChange={() => toggleFileSelection(file.path)}
+                />
+                <span className="truncate max-w-xs" title={file.path}>📄 {file.path.split('/').pop()}</span>
+                {file.size && <span className="text-sm text-muted-foreground ml-2">({formatBytes(file.size)})</span>}
+              </label>
               <Button variant="outline" onClick={() => window.open(file.url, '_blank')}>Download</Button>
             </CardContent>
           </Card>
