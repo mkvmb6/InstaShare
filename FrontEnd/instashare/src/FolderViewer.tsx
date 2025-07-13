@@ -27,7 +27,7 @@ const FolderViewer = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
 
-  const baseUrl = 'https://instashare.mohitkumarverma.com';
+  const baseUrl = 'https://cdn.instashare.mohitkumarverma.com';
 
   useEffect(() => {
     const fetchIndex = async () => {
