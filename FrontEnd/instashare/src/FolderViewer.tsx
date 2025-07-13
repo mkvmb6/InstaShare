@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader } from 'lucide-react';
+import { Loader, Moon, Sun } from 'lucide-react';
 import { zipSync } from 'fflate';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbSeparator } from './components/ui/breadcrumb';
 import React from 'react';
+import { useTheme } from 'next-themes';
 
 const formatBytes = (bytes: number) => {
   if (bytes === 0) return '0 B';
@@ -24,6 +25,7 @@ const FolderViewer = () => {
   const [downloadingIndividually, setDownloadingIndividually] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState(new Set());
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
 
   const baseUrl = 'https://instashare.mohitkumarverma.com';
 
@@ -200,6 +202,11 @@ const FolderViewer = () => {
     );
   };
 
+
+  const toggleTheme = () => {
+    setTheme(theme === 'dark' ? 'light' : 'dark');
+  };
+
   if (loading) return <p className="p-4">Loading folder contents...</p>;
 
   return (
@@ -230,6 +237,11 @@ const FolderViewer = () => {
               'Download All as ZIP'
             )}
           </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="ghost" size="icon" onClick={toggleTheme} title="Toggle Theme">
+              {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
+          </div>
         </div>
       </div>
 
