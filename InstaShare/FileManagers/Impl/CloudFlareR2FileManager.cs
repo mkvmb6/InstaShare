@@ -27,17 +27,7 @@ namespace InstaShare.FileManagers.Impl
             await _s3.DeleteObjectAsync(request);
         }
 
-        public Task<string> GetOrCreateFolder(string folderName, string? parentFolderId = null)
-        {
-            throw new NotImplementedException();
-        }
-
-        public Task<string> ShareFolderAndGetLink(string folderId)
-        {
-            throw new NotImplementedException();
-        }
-
-        public async Task<(string fileId, string sharedLink)> UploadFile(string filePath, string parentFolderId, Action<double, string, string>? reportProgress = null)
+        public async Task<(string fileId, string sharedLink)> UploadFile(string filePath, Action<double, string, string>? reportProgress = null)
         {
             var fileName = Path.GetFileName(filePath);
             var folderId = $"{fileName}-{Guid.NewGuid()}";
@@ -63,7 +53,7 @@ namespace InstaShare.FileManagers.Impl
             return (fileId, sharedLink);
         }
 
-        public async Task<(string folderId, string sharedLink)> UploadFolderWithStructure(string localRootPath, string driveRootFolderName, Action<string, string>? reportProgress = null)
+        public async Task<(string folderId, string sharedLink)> UploadFolderWithStructure(string localRootPath, Action<string, string>? reportProgress = null)
         {
             if (!Directory.Exists(localRootPath))
             {
