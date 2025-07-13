@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader } from 'lucide-react';
 import { zipSync } from 'fflate';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 
 const FolderViewer = () => {
   const { folderId = '', subPath = '' } = useParams();
@@ -79,12 +79,30 @@ const FolderViewer = () => {
     setDownloading(false);
   };
 
+  const renderBreadcrumbs = () => {
+    const segments = currentPath.split('/').filter(Boolean);
+    const links = [<Link key="root" to={`/view/${folderId}`} className="text-blue-600 hover:underline">{folderId}</Link>];
+
+    segments.reduce((acc: string[], segment, index) => {
+      const path = [...acc, segment].join('/');
+      links.push(
+        <span key={`sep-${index}`}> / </span>,
+        <Link key={`crumb-${index}`} to={`/view/${folderId}/${encodeURIComponent(path)}`} className="text-blue-600 hover:underline">
+          {segment}
+        </Link>
+      );
+      return [...acc, segment];
+    }, []);
+
+    return <div className="mb-4">{links}</div>;
+  };
+
   if (loading) return <p className="p-4">Loading folder contents...</p>;
 
   return (
     <div className="p-4 max-w-4xl mx-auto">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-semibold">Folder: /{folderId}/{currentPath}</h2>
+      <div className="flex justify-between items-center mb-2">
+        <h2 className="text-xl font-semibold">📁 {currentPath || folderId}</h2>
         <Button onClick={downloadAllAsZip} disabled={downloading}>
           {downloading ? (
             <span className="flex items-center gap-2"><Loader className="animate-spin" size={16} /> Zipping...</span>
@@ -94,13 +112,11 @@ const FolderViewer = () => {
         </Button>
       </div>
 
-      {subPath && (
-        <Button variant="link" onClick={() => navigate(`/view/${folderId}/${encodeURIComponent(currentPath.split('/').slice(0, -1).join('/'))}`)}>⬅️ Back</Button>
-      )}
+      {renderBreadcrumbs()}
 
       <div className="grid gap-4">
         {subFolders.map((folder, idx) => (
-          <Card key={`folder-${idx}`} className="p-3 bg-muted cursor-pointer" onClick={() => navigate(`/view/${folderId}/${encodeURIComponent((currentPath + '/' + folder).replace(/^\//, ''))}`)}>
+          <Card key={`folder-${idx}`} className="p-3 bg-muted cursor-pointer hover:bg-accent" onClick={() => navigate(`/view/${folderId}/${encodeURIComponent((currentPath + '/' + folder).replace(/^\//, ''))}`)}>
             <CardContent className="font-medium">📁 {folder}</CardContent>
           </Card>
         ))}
@@ -108,7 +124,7 @@ const FolderViewer = () => {
         {filteredFiles.map((file: any, index) => (
           <Card key={index} className="p-3">
             <CardContent className="flex items-center justify-between">
-              <span className="truncate max-w-xs" title={file.path}>{file.path.split('/').pop()}</span>
+              <span className="truncate max-w-xs" title={file.path}>📄 {file.path.split('/').pop()}</span>
               <Button variant="outline" onClick={() => window.open(file.url, '_blank')}>Download</Button>
             </CardContent>
           </Card>
