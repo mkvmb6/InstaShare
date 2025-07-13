@@ -60,6 +60,11 @@ const FolderViewer = () => {
       .filter(Boolean)
   ));
 
+  const getItemCountInFolder = (folderName: string) => {
+    const folderPrefix = (currentPath ? currentPath + '/' : '') + folderName + '/';
+    return files.filter((f: any) => f.path.startsWith(folderPrefix)).length;
+  }
+
   const downloadAllAsZip = async () => {
     setDownloading(true);
     const zipEntries: any = {};
@@ -214,7 +219,10 @@ const FolderViewer = () => {
       <div className="grid gap-4">
         {subFolders.map((folder, idx) => (
           <Card key={`folder-${idx}`} className="p-3 bg-muted cursor-pointer hover:bg-accent" onClick={() => navigate(`/view/${folderId}/${encodeURIComponent((currentPath + '/' + folder).replace(/^\//, ''))}`)}>
-            <CardContent className="font-medium">📁 {folder}</CardContent>
+            <CardContent className="font-medium flex justify-between items-center">
+              <span>📁 {folder}</span>
+              <span className="text-sm text-muted-foreground">{getItemCountInFolder(folder)} item(s)</span>
+            </CardContent>
           </Card>
         ))}
 
