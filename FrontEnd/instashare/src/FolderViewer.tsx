@@ -10,6 +10,7 @@ const FolderViewer = () => {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingIndividually, setDownloadingIndividually] = useState(false);
   const navigate = useNavigate();
 
   const baseUrl = 'https://instashare.mohitkumarverma.com';
@@ -31,7 +32,7 @@ const FolderViewer = () => {
 
   const currentPath = decodeURIComponent(subPath || '');
 
-  const filteredFiles = files.filter((file: any) => {
+  const filteredFiles: any = files.filter((file: any) => {
     const relPath = file.path.replace(/\\/g, '/');
     if (!relPath.startsWith(currentPath)) return false;
     const sub = relPath.substring(currentPath.length).replace(/^\//, '');
@@ -79,6 +80,34 @@ const FolderViewer = () => {
     setDownloading(false);
   };
 
+  const downloadAllIndividually = async () => {
+    setDownloadingIndividually(true);
+
+    for (const file of filteredFiles) {
+      try {
+        const response = await fetch(file.url);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.path.split('/').pop() || 'file';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        URL.revokeObjectURL(url);
+        await new Promise(resolve => setTimeout(resolve, 500)); // Optional delay
+      } catch (e) {
+        console.error('Failed to download', file.path, e);
+      }
+    }
+
+    setDownloadingIndividually(false);
+  };
+
+
+
   const renderBreadcrumbs = () => {
     const segments = currentPath.split('/').filter(Boolean);
     const links = [<Link key="root" to={`/view/${folderId}`} className="text-blue-600 hover:underline">{folderId}</Link>];
@@ -101,15 +130,24 @@ const FolderViewer = () => {
 
   return (
     <div className="p-4 max-w-4xl mx-auto">
-      <div className="flex justify-between items-center mb-2">
+      <div className="flex justify-between items-center mb-2 gap-2 flex-wrap">
         <h2 className="text-xl font-semibold">📁 {currentPath || folderId}</h2>
-        <Button onClick={downloadAllAsZip} disabled={downloading}>
-          {downloading ? (
-            <span className="flex items-center gap-2"><Loader className="animate-spin" size={16} /> Zipping...</span>
-          ) : (
-            'Download All as ZIP'
-          )}
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={downloadAllAsZip} disabled={downloading}>
+            {downloading ? (
+              <span className="flex items-center gap-2"><Loader className="animate-spin" size={16} /> Zipping...</span>
+            ) : (
+              'Download All as ZIP'
+            )}
+          </Button>
+          <Button onClick={downloadAllIndividually} disabled={downloadingIndividually}>
+            {downloadingIndividually ? (
+              <span className="flex items-center gap-2"><Loader className="animate-spin" size={16} /> Downloading...</span>
+            ) : (
+              'Download Individually'
+            )}
+          </Button>
+        </div>
       </div>
 
       {renderBreadcrumbs()}
@@ -121,7 +159,7 @@ const FolderViewer = () => {
           </Card>
         ))}
 
-        {filteredFiles.map((file: any, index) => (
+        {filteredFiles.map((file: any, index: number) => (
           <Card key={index} className="p-3">
             <CardContent className="flex items-center justify-between">
               <span className="truncate max-w-xs" title={file.path}>📄 {file.path.split('/').pop()}</span>
