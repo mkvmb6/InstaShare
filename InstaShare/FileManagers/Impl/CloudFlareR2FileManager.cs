@@ -37,6 +37,7 @@ namespace InstaShare.FileManagers.Impl
             using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
             var totalSize = fileStream.Length;
 
+            await UploadIndexJson(fileName, totalSize, folderId, folderId, sharedLink, UploadStatus.Uploading);
             using var progressStream = new ProgressStream(fileStream, totalSize, sharedLink, reportProgress);
 
             var content = new StreamContent(progressStream);
@@ -46,10 +47,7 @@ namespace InstaShare.FileManagers.Impl
             var response = await http.PutAsync(_s3.GetPreSignedUrl(fileId), content);
             response.EnsureSuccessStatusCode();
 
-            reportProgress?.Invoke(0, "Uploading index.json", sharedLink);
-            await UploadIndexJson(fileName, totalSize, folderId, folderId, sharedLink);
-            reportProgress?.Invoke(100, "Uploaded index.json", sharedLink);
-
+            await UploadIndexJson(fileName, totalSize, folderId, folderId, sharedLink, UploadStatus.Uploaded);
             return (fileId, sharedLink);
         }
 
@@ -66,7 +64,10 @@ namespace InstaShare.FileManagers.Impl
             var baseFolder = $"{uniqueFolderId}/{folderName}";
             var sharedLink = $"{Constants.AppBaseUrl}/{baseFolder}";
 
-            await Parallel.ForEachAsync(files, async (file, cancellationToken) =>
+            index = GetIndex(files, folderName, baseFolder, localRootPath);
+            await UploadIndexJson([.. index], uniqueFolderId, sharedLink);
+
+            await Parallel.ForEachAsync(files, new ParallelOptions { MaxDegreeOfParallelism = 5 }, async (file, cancellationToken) =>
             {
                 var relativePath = Path.GetRelativePath(localRootPath, file).Replace("\\", "/");
                 var fileId = $"{baseFolder}/{relativePath}";
@@ -76,6 +77,8 @@ namespace InstaShare.FileManagers.Impl
                 using var http = new HttpClient();
                 using var fileStream = new FileStream(file, FileMode.Open, FileAccess.Read);
                 var totalSize = fileStream.Length;
+                var timeoutSeconds = Math.Max(300, totalSize / 50000); // Assuming min speed around 50KBps
+                http.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
 
                 using var progressStream = new ProgressStream(fileStream, totalSize, sharedLink);
 
@@ -85,24 +88,34 @@ namespace InstaShare.FileManagers.Impl
 
                 var response = await http.PutAsync(_s3.GetPreSignedUrl(fileId), content, cancellationToken);
                 response.EnsureSuccessStatusCode();
-
-                var fileInfo = new FileInfo(file);
-                index.Add(new FileIndex
-                {
-                    path = $"{folderName}/{relativePath}",
-                    size = totalSize,
-                    url = $"{Constants.CdnBaseUrl}/{fileId}"
-                });
+                var path = $"{folderName}/{relativePath}";
+                index.First(idx => idx.path == path).status = UploadStatus.Uploaded;
+                await UploadIndexJson([.. index], uniqueFolderId, sharedLink);
 
             });
 
-            reportProgress?.Invoke("Uploading index.json", sharedLink);
-            await UploadIndexJson([.. index], uniqueFolderId, sharedLink);
-            reportProgress?.Invoke("Uploaded index.json", sharedLink);
             return (baseFolder, sharedLink);
         }
 
-        private async Task UploadIndexJson(string fileName, long fileSize, string folderId, string baseFolder, string sharedLink)
+        private static ConcurrentBag<FileIndex> GetIndex(string[] files, string folderName, string baseFolder, string localRootPath)
+        {
+            var index = new ConcurrentBag<FileIndex>();
+            foreach (var file in files)
+            {
+                var relativePath = Path.GetRelativePath(localRootPath, file).Replace("\\", "/");
+                var fileId = $"{baseFolder}/{relativePath}";
+                index.Add(new FileIndex
+                {
+                    path = $"{folderName}/{relativePath}",
+                    size = new FileInfo(file).Length,
+                    url = $"{Constants.CdnBaseUrl}/{fileId}",
+                    status = UploadStatus.Uploading
+                });
+            }
+            return index;
+        }
+
+        private async Task UploadIndexJson(string fileName, long fileSize, string folderId, string baseFolder, string sharedLink, string status)
         {
             var index = new List<FileIndex>();
             var uploadRecord = new FileIndex
@@ -110,6 +123,7 @@ namespace InstaShare.FileManagers.Impl
                 path = fileName,
                 url = $"{Constants.CdnBaseUrl}/{folderId}/{fileName}",
                 size = fileSize,
+                status = status
             };
             index.Add(uploadRecord);
             await UploadIndexJson(index, baseFolder, sharedLink);
