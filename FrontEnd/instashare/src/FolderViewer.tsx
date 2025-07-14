@@ -6,7 +6,7 @@ import { zipSync } from 'fflate';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTheme } from 'next-themes';
 import type { FileEntry } from './models/fileEntry';
-import { formatBytes } from './utils/utils';
+import { formatBytes, smartCompare } from './utils/utils';
 import Breadcrumbs from './components/custom/Breadcrumbs';
 import FolderCard from './components/custom/FolderCard';
 import FileCard from './components/custom/FileCard';
@@ -14,24 +14,31 @@ import FileCard from './components/custom/FileCard';
 const baseUrl = 'https://cdn.instashare.mohitkumarverma.com';
 
 
-const useFolderData = (folderId: string) => {
+const useFolderData = (folderId: string, subPath: string) => {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
     const fetchIndex = async () => {
       try {
         const res = await fetch(`${baseUrl}/${folderId}/index.json`);
         const data = await res.json();
-        setFiles(data);
+        if (isMounted) setFiles(data);
       } catch (err) {
-        console.error('Failed to load index.json', err);
+        if (isMounted) console.error('Failed to load index.json', err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
     fetchIndex();
-  }, [folderId]);
+
+    const interval = setInterval(fetchIndex, 3000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [folderId, subPath]);
 
   return { files, loading };
 };
@@ -71,7 +78,7 @@ const getFolderSize = (files: FileEntry[], currentPath: string, folderName?: str
 
 const FolderViewer: React.FC = () => {
   const { folderId = '', subPath = '' } = useParams();
-  const { files, loading } = useFolderData(folderId);
+  const { files, loading } = useFolderData(folderId, subPath || '');
   const [downloading, setDownloading] = useState(false);
   const [downloadingIndividually, setDownloadingIndividually] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
@@ -79,8 +86,16 @@ const FolderViewer: React.FC = () => {
   const { theme, setTheme } = useTheme();
 
   const currentPath = decodeURIComponent(subPath || '');
-  const filteredFiles = getFilteredFiles(files, currentPath);
-  const subFolders = getSubFolders(files, currentPath);
+  const filteredFiles = getFilteredFiles(files, currentPath).sort((a, b) => {
+    const nameA = a.path.split('/').pop() || '';
+    const nameB = b.path.split('/').pop() || '';
+    return smartCompare(nameA, nameB);
+  });
+  const subFolders = getSubFolders(files, currentPath).sort((a, b) => {
+    const nameA = a || '';
+    const nameB = b || '';
+    return smartCompare(nameA, nameB);
+  });
 
   const handleToggleFileSelection = (filePath: string) => {
     setSelectedFiles(prev => {
@@ -101,7 +116,7 @@ const FolderViewer: React.FC = () => {
     const zipEntries: Record<string, Uint8Array> = {};
     await Promise.all(
       files
-        .filter(f => f.path.startsWith(currentPath))
+        .filter(f => f.path.startsWith(currentPath) && f.status !== 'uploading')
         .map(async file => {
           try {
             const response = await fetch(file.url);
@@ -126,6 +141,7 @@ const FolderViewer: React.FC = () => {
   const handleDownloadIndividually = async (filesToDownload: FileEntry[]) => {
     setDownloadingIndividually(true);
     for (const file of filesToDownload) {
+      if (file.status === 'uploading') continue;
       try {
         const response = await fetch(file.url);
         const blob = await response.blob();
@@ -201,15 +217,20 @@ const FolderViewer: React.FC = () => {
       <Breadcrumbs folderId={folderId} currentPath={currentPath} />
 
       <div className="grid gap-4">
-        {subFolders.map((folder, idx) => (
-          <FolderCard
-            key={`folder-${idx}`}
-            folder={folder}
-            onClick={() => navigate(`/view/${folderId}/${encodeURIComponent((currentPath + '/' + folder).replace(/^\//, ''))}`)}
-            itemCount={getItemCountInFolder(files, currentPath, folder)}
-            size={getFolderSize(files, currentPath, folder)}
-          />
-        ))}
+        {subFolders.map((folder, idx) => {
+          const folderPrefix = (currentPath ? currentPath + '/' : '') + folder + '/';
+          const hasUploading = files.some(f => f.path.startsWith(folderPrefix) && f.status === 'uploading');
+          return (
+            <FolderCard
+              key={`folder-${idx}`}
+              folder={folder}
+              onClick={() => navigate(`/view/${folderId}/${encodeURIComponent((currentPath + '/' + folder).replace(/^\//, ''))}`)}
+              itemCount={getItemCountInFolder(files, currentPath, folder)}
+              size={getFolderSize(files, currentPath, folder)}
+              uploading={hasUploading}
+            />
+          );
+        })}
 
         {filteredFiles.length > 0 && (
           <label className="flex items-center gap-2 mb-2">
