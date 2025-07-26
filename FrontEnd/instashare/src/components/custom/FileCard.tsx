@@ -3,10 +3,9 @@ import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
 import { Checkbox } from "../ui/checkbox";
 import type { FileEntry } from "@/models/fileEntry";
-
-// ...existing code...
-
+import TextFilePreview from "./TextFilePreview";
 import { useState } from "react";
+
 const getFileType = (fileName: string) => {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
     const videoExts = ["mp4", "webm", "mkv", "mov", "avi", "flv", "wmv", "mpeg", "3gp"];
@@ -88,7 +87,7 @@ const FileCard: React.FC<{
                         ) : fileType === "pdf" ? (
                             <iframe src={file.url} title={fileName} className="w-full h-[70vh]" />
                         ) : fileType === "text" ? (
-                            <iframe src={file.url} title={fileName} className="w-full h-[70vh] bg-gray-100" />
+                            <TextFilePreview url={file.url} />
                         ) : (
                             <div className="text-center">Cannot preview this file type.</div>
                         )}
