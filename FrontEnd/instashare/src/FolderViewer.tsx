@@ -143,16 +143,14 @@ const FolderViewer: React.FC = () => {
     for (const file of filesToDownload) {
       if (file.status === 'uploading') continue;
       try {
-        const response = await fetch(file.url);
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = file.path.split('/').pop() || 'file';
+        a.href = file.url;
+        a.download = file.path.split('/').pop() || 'file';;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
         await new Promise(resolve => setTimeout(resolve, 500));
       } catch (e) {
         console.error('Failed to download file:', file.path);
