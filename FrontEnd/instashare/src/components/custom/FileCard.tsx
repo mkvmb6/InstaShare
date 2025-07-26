@@ -48,7 +48,23 @@ const FileCard: React.FC<{
                         {(fileType === "image" || fileType === "pdf" || fileType === "text") && (
                             <Button variant="outline" onClick={handleView}>View</Button>
                         )}
-                        <Button variant="outline" onClick={() => window.open(file.url, '_blank')}>Download</Button>
+                        <Button
+                            variant="outline"
+                            onClick={async () => {
+                                try {
+                                    const a = document.createElement('a');
+                                    a.href = file.url;
+                                    a.download = fileName;
+                                    a.target = "_blank";
+                                    a.rel = "noopener noreferrer";
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                } catch (e) {
+                                    alert('Failed to download video');
+                                }
+                            }}
+                        >Download</Button>
                     </div>
                 ) : (
                     <span className="text-sm text-orange-500">Uploading...</span>
