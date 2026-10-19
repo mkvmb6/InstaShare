@@ -1,4 +1,4 @@
-export type FileStatus = 'uploading' | 'uploaded';
+export type FileStatus = 'uploading' | 'uploaded' | 'failed';
 
 export interface FileEntry {
   path: string;

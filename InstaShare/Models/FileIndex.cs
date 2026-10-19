@@ -12,5 +12,6 @@
     {
         public const string Uploading = "uploading";
         public const string Uploaded = "uploaded";
+        public const string Failed = "failed";
     }
 }

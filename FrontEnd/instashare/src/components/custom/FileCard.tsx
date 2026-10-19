@@ -35,7 +35,7 @@ const FileCard: React.FC<{
         <Card className="p-3">
             <CardContent className="flex items-center justify-between gap-4">
                 <label className="flex items-center gap-2">
-                    <Checkbox checked={checked} onCheckedChange={onCheck} disabled={file.status === 'uploading'} />
+                    <Checkbox checked={checked} onCheckedChange={onCheck} disabled={file.status !== 'uploaded'} />
                     <span className="truncate max-w-xs" title={file.path}>📄 {fileName}</span>
                     {file.size && <span className="text-sm text-muted-foreground ml-2">({formatBytes(file.size)})</span>}
                 </label>
@@ -65,6 +65,8 @@ const FileCard: React.FC<{
                             }}
                         >Download</Button>
                     </div>
+                ) : file.status === 'failed' ? (
+                    <span className="text-sm text-red-500">Upload failed</span>
                 ) : (
                     <span className="text-sm text-orange-500">Uploading...</span>
                 )}

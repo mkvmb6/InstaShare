@@ -16,7 +16,10 @@ namespace InstaShare.FileManagers.Impl
             var config = new AmazonS3Config
             {
                 ForcePathStyle = true,
-                RegionEndpoint = RegionEndpoint.USEast1 // Dummy value required
+                RegionEndpoint = RegionEndpoint.USEast1, // Dummy value required
+                // R2 rejects the CRC checksums the SDK adds by default
+                RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
+                ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED,
             };
             config.ServiceURL = $"https://{r2Settings.AccountId}.r2.cloudflarestorage.com";
 
@@ -24,16 +27,42 @@ namespace InstaShare.FileManagers.Impl
             return new AmazonS3Client(credentials, config);
         }
 
-        public static string GetPreSignedUrl(this IAmazonS3 s3Client, string fileName)
+        /// <summary>
+        /// Presigns a PUT for a whole object. The request must send the same Content-Type,
+        /// Content-Disposition and x-amz-acl headers, since they are part of the signature.
+        /// </summary>
+        public static string GetPreSignedUrl(this IAmazonS3 s3Client, string key, string contentType, string? contentDisposition = null)
         {
             var request = new GetPreSignedUrlRequest
             {
                 BucketName = Constants.R2BucketName,
-                Key = fileName,
+                Key = key,
                 Verb = HttpVerb.PUT,
                 Expires = DateTime.UtcNow.Add(TimeSpan.FromHours(10)),
                 Protocol = Protocol.HTTPS,
-                Headers = { ["x-amz-acl"] = "public-read" } // optional
+                ContentType = contentType,
+                Headers = { ["x-amz-acl"] = "public-read" }
+            };
+            if (contentDisposition != null)
+                request.Headers.ContentDisposition = contentDisposition;
+
+            return s3Client.GetPreSignedURL(request);
+        }
+
+        /// <summary>
+        /// Presigns a PUT for one part of a multipart upload.
+        /// </summary>
+        public static string GetPreSignedPartUrl(this IAmazonS3 s3Client, string key, string uploadId, int partNumber)
+        {
+            var request = new GetPreSignedUrlRequest
+            {
+                BucketName = Constants.R2BucketName,
+                Key = key,
+                Verb = HttpVerb.PUT,
+                Expires = DateTime.UtcNow.Add(TimeSpan.FromHours(10)),
+                Protocol = Protocol.HTTPS,
+                UploadId = uploadId,
+                PartNumber = partNumber,
             };
 
             return s3Client.GetPreSignedURL(request);

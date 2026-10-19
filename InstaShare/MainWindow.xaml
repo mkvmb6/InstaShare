@@ -4,8 +4,9 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="InstaShare" Height="400" Width="600"
-        WindowStartupLocation="CenterScreen">
+        Title="InstaShare" Height="440" Width="600"
+        WindowStartupLocation="CenterScreen"
+        Closing="Window_Closing">
 
     <Window.Resources>
         <!-- Auto-detect theme from system -->
@@ -31,18 +32,22 @@
                     <Setter Property="Margin" Value="0,10,0,0"/>
                 </Style>
             </StackPanel.Resources>
-            <Button Content="Select File" Height="40" Click="SelectFile_Click"/>
+            <Button x:Name="SelectFileButton" Content="Select File" Height="40" Click="SelectFile_Click"/>
 
-            <Button Content="Select Folder" Height="40" Click="SelectFolder_Click"/>
+            <Button x:Name="SelectFolderButton" Content="Select Folder" Height="40" Click="SelectFolder_Click"/>
 
-            <TextBlock x:Name="SelectedPathText" Text="No file/folder selected." TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,10"/>
+            <TextBlock x:Name="SelectedPathText" Text="No file/folder selected." TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,4"/>
+
+            <ProgressBar x:Name="UploadProgressBar" Height="6" Minimum="0" Maximum="100" Margin="0,0,0,10" Visibility="Collapsed"/>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                 <TextBox x:Name="LinkTextBox" Width="300" IsReadOnly="True" Visibility="Collapsed"/>
                 <Button x:Name="CopyLinkButton" Content="Copy Link" Click="CopyLinkButton_Click" Visibility="Collapsed"/>
             </StackPanel>
 
-            <Button Content="Delete Old Shares" Height="40" Click="DeleteExpired_Click"/>
+            <Button x:Name="CancelButton" Content="Cancel Upload" Height="40" Click="CancelUpload_Click" Visibility="Collapsed"/>
+
+            <Button x:Name="DeleteExpiredButton" Content="Delete Old Shares" Height="40" Click="DeleteExpired_Click"/>
         </StackPanel>
 
         <TextBlock Grid.Row="2" Text="@YourCodeLab" FontSize="12" HorizontalAlignment="Center" Opacity="0.4" Margin="0,20,0,0"/>

@@ -116,7 +116,7 @@ const FolderViewer: React.FC = () => {
     const zipEntries: Record<string, Uint8Array> = {};
     await Promise.all(
       files
-        .filter(f => f.path.startsWith(currentPath) && f.status !== 'uploading')
+        .filter(f => f.path.startsWith(currentPath) && f.status === 'uploaded')
         .map(async file => {
           try {
             const response = await fetch(file.url);
@@ -141,7 +141,7 @@ const FolderViewer: React.FC = () => {
   const handleDownloadIndividually = async (filesToDownload: FileEntry[]) => {
     setDownloadingIndividually(true);
     for (const file of filesToDownload) {
-      if (file.status === 'uploading') continue;
+      if (file.status !== 'uploaded') continue;
       try {
         const a = document.createElement('a');
         a.href = file.url;
