@@ -6,8 +6,14 @@ namespace InstaShare.FileManagers.Impl
         /// The viewer link for a share path like "{guid}/My Folder". Each segment is percent-encoded so the link
         /// stays one clickable URL when pasted into chat apps, which stop at the first space.
         /// </summary>
-        public static string GetShareLink(string sharePath) =>
-            $"{Constants.AppBaseUrl}/{string.Join('/', sharePath.Split('/').Select(Uri.EscapeDataString))}";
+        public static string GetShareLink(string sharePath) => $"{Constants.AppBaseUrl}/{EscapePath(sharePath)}";
+
+        /// <summary>
+        /// The public CDN URL of an object. Names with '#', '?' or '%' would otherwise be cut short by the browser.
+        /// </summary>
+        public static string GetCdnUrl(string key) => $"{Constants.CdnBaseUrl}/{EscapePath(key)}";
+
+        private static string EscapePath(string path) => string.Join('/', path.Split('/').Select(Uri.EscapeDataString));
 
         /// <summary>
         /// Encodes links saved before <see cref="GetShareLink"/> existed. Already-encoded links come back unchanged.

@@ -8,7 +8,7 @@ const Breadcrumbs: React.FC<{ folderId: string; currentPath: string }> = ({ fold
         <Breadcrumb className="mb-4 flex flex-wrap items-center gap-1">
             <BreadcrumbItem>
                 <BreadcrumbLink asChild>
-                    <Link to={`/view/${folderId}`}>{folderId}</Link>
+                    <Link to={`/view/${encodeURIComponent(folderId)}`}>{folderId}</Link>
                 </BreadcrumbLink>
             </BreadcrumbItem>
             {segments.map((segment, index) => {
@@ -18,7 +18,7 @@ const Breadcrumbs: React.FC<{ folderId: string; currentPath: string }> = ({ fold
                         <BreadcrumbSeparator className="flex" />
                         <BreadcrumbItem>
                             <BreadcrumbLink asChild>
-                                <Link to={`/view/${folderId}/${encodeURIComponent(path)}`}>{segment}</Link>
+                                <Link to={`/view/${encodeURIComponent(folderId)}/${encodeURIComponent(path)}`}>{segment}</Link>
                             </BreadcrumbLink>
                         </BreadcrumbItem>
                     </Fragment>

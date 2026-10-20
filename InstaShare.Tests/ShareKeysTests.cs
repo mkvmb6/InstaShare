@@ -33,5 +33,11 @@ namespace InstaShare.Tests
         [InlineData("https://example.test/view/abc/My Photos", "https://example.test/view/abc/My%20Photos")]
         [InlineData("https://example.test/view/abc/My%20Photos", "https://example.test/view/abc/My%20Photos")]
         public void NormalizesOldLinks(string link, string expected) => Assert.Equal(expected, ShareKeys.NormalizeLink(link));
+
+        [Theory]
+        [InlineData("a-bcbc25b7-7545-480f-ab41-512330032e34/photo#1.png", "/a-bcbc25b7-7545-480f-ab41-512330032e34/photo%231.png")]
+        [InlineData("bcbc25b7-7545-480f-ab41-512330032e34/Docs/100% done?.txt", "/bcbc25b7-7545-480f-ab41-512330032e34/Docs/100%25%20done%3F.txt")]
+        public void CdnUrlKeepsSlashesAndEncodesNames(string key, string expectedPath) =>
+            Assert.Equal(Constants.CdnBaseUrl + expectedPath, ShareKeys.GetCdnUrl(key));
     }
 }

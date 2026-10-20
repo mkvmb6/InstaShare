@@ -22,7 +22,7 @@ const useFolderData = (folderId: string, subPath: string) => {
     let isMounted = true;
     const fetchIndex = async () => {
       try {
-        const res = await fetch(`${baseUrl}/${folderId}/index.json`);
+        const res = await fetch(`${baseUrl}/${encodeURIComponent(folderId)}/index.json`);
         const data = await res.json();
         if (isMounted) setFiles(data);
       } catch (err) {
@@ -85,7 +85,8 @@ const FolderViewer: React.FC = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
 
-  const currentPath = decodeURIComponent(subPath || '');
+  // The router has already decoded the params; decoding again breaks names containing '%'.
+  const currentPath = subPath || '';
   const filteredFiles = getFilteredFiles(files, currentPath).sort((a, b) => {
     const nameA = a.path.split('/').pop() || '';
     const nameB = b.path.split('/').pop() || '';
@@ -222,7 +223,7 @@ const FolderViewer: React.FC = () => {
             <FolderCard
               key={`folder-${idx}`}
               folder={folder}
-              onClick={() => navigate(`/view/${folderId}/${encodeURIComponent((currentPath + '/' + folder).replace(/^\//, ''))}`)}
+              onClick={() => navigate(`/view/${encodeURIComponent(folderId)}/${encodeURIComponent((currentPath + '/' + folder).replace(/^\//, ''))}`)}
               itemCount={getItemCountInFolder(files, currentPath, folder)}
               size={getFolderSize(files, currentPath, folder)}
               uploading={hasUploading}

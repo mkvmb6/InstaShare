@@ -70,7 +70,7 @@ namespace InstaShare.FileManagers.Impl
             var entry = new FileIndex
             {
                 path = fileName,
-                url = $"{Constants.CdnBaseUrl}/{fileId}",
+                url = ShareKeys.GetCdnUrl(fileId),
                 size = totalSize,
                 status = UploadStatus.Uploading
             };
@@ -212,7 +212,7 @@ namespace InstaShare.FileManagers.Impl
                 {
                     path = $"{folderName}/{relativePath}",
                     size = new FileInfo(file).Length,
-                    url = $"{Constants.CdnBaseUrl}/{fileId}",
+                    url = ShareKeys.GetCdnUrl(fileId),
                     status = UploadStatus.Uploading
                 });
             }
