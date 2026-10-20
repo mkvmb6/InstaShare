@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using InstaShare.FileManagers.Impl;
 using InstaShare.Models;
 using InstaShare.Services;
 
@@ -8,7 +9,7 @@ namespace InstaShare.ViewModels
     {
         public UploadRecord Record { get; } = record;
         public string Name => Record.DisplayName;
-        public string? Link => Record.ShareableLink;
+        public string? Link { get; } = ShareKeys.NormalizeLink(record.ShareableLink);
         public string FileId => Record.FileId;
 
         public string Summary

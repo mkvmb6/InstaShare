@@ -64,7 +64,7 @@ namespace InstaShare.FileManagers.Impl
             var fileName = Path.GetFileName(filePath);
             var folderId = $"{fileName}-{Guid.NewGuid()}";
             var fileId = $"{folderId}/{fileName}";
-            var sharedLink = $"{Constants.AppBaseUrl}/{folderId}";
+            var sharedLink = ShareKeys.GetShareLink(folderId);
             var totalSize = new FileInfo(filePath).Length;
 
             var entry = new FileIndex
@@ -108,7 +108,7 @@ namespace InstaShare.FileManagers.Impl
             var files = Directory.GetFiles(localRootPath, "*", SearchOption.AllDirectories);
             var folderName = Path.GetFileName(localRootPath);
             var baseFolder = $"{uniqueFolderId}/{folderName}";
-            var sharedLink = $"{Constants.AppBaseUrl}/{baseFolder}";
+            var sharedLink = ShareKeys.GetShareLink(baseFolder);
 
             var entries = GetIndex(files, folderName, baseFolder, localRootPath);
             var index = new IndexPublisher(entries, (json, ct) => UploadIndexJson(json, uniqueFolderId, ct));
@@ -128,7 +128,7 @@ namespace InstaShare.FileManagers.Impl
         {
             var uniqueFolderId = ShareKeys.GetSharePrefix(folderId).TrimEnd('/');
             var folderName = folderId[(uniqueFolderId.Length + 1)..];
-            var sharedLink = $"{Constants.AppBaseUrl}/{folderId}";
+            var sharedLink = ShareKeys.GetShareLink(folderId);
 
             // The published index is the source of truth for every other file's status.
             List<FileIndex> entries;

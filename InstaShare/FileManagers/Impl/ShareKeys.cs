@@ -3,6 +3,19 @@ namespace InstaShare.FileManagers.Impl
     internal static class ShareKeys
     {
         /// <summary>
+        /// The viewer link for a share path like "{guid}/My Folder". Each segment is percent-encoded so the link
+        /// stays one clickable URL when pasted into chat apps, which stop at the first space.
+        /// </summary>
+        public static string GetShareLink(string sharePath) =>
+            $"{Constants.AppBaseUrl}/{string.Join('/', sharePath.Split('/').Select(Uri.EscapeDataString))}";
+
+        /// <summary>
+        /// Encodes links saved before <see cref="GetShareLink"/> existed. Already-encoded links come back unchanged.
+        /// </summary>
+        public static string NormalizeLink(string link) =>
+            Uri.TryCreate(link, UriKind.Absolute, out var uri) ? uri.AbsoluteUri : link;
+
+        /// <summary>
         /// Returns the top-level folder ("{guid}/" or "{name}-{guid}/") that holds every object of a share.
         /// </summary>
         /// <exception cref="ArgumentException">The ID has no folder part, or that folder doesn't end in a GUID.
