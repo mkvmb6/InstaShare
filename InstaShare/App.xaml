@@ -1,9 +1,27 @@
 ﻿<Application x:Class="InstaShare.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:InstaShare"
-             Startup="Application_Startup">
+             xmlns:views="clr-namespace:InstaShare.Views"
+             Startup="Application_Startup"
+             Exit="Application_Exit"
+             ShutdownMode="OnExplicitShutdown"
+             ThemeMode="System">
     <Application.Resources>
-         
+        <views:VisibleWhenConverter x:Key="VisibleWhen" />
+        <views:EnumIndexConverter x:Key="EnumIndex" />
+        <views:VisibleWhenEqualsConverter x:Key="VisibleWhenEquals" />
+        <views:InverseBoolConverter x:Key="Not" />
+        <views:EnumEqualsConverter x:Key="PageIs" />
+        <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="14,12" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+
     </Application.Resources>
 </Application>

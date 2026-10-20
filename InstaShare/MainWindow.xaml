@@ -3,53 +3,478 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:InstaShare.ViewModels"
         mc:Ignorable="d"
-        Title="InstaShare" Height="440" Width="600"
+        d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
+        Title="InstaShare" Height="640" Width="620" MinHeight="460" MinWidth="460"
         WindowStartupLocation="CenterScreen"
+        Icon="pack://application:,,,/Assets/InstaShare.ico"
+        AllowDrop="True"
         Closing="Window_Closing">
 
+    <Window.TaskbarItemInfo>
+        <TaskbarItemInfo ProgressValue="{Binding TaskbarProgress}" ProgressState="{Binding TaskbarState}" />
+    </Window.TaskbarItemInfo>
+
+    <Window.InputBindings>
+        <KeyBinding Key="O" Modifiers="Control" Command="{Binding BrowseFilesCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+        <KeyBinding Key="O" Modifiers="Control+Shift" Command="{Binding BrowseFolderCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+        <KeyBinding Key="V" Modifiers="Control" Command="{Binding PasteCommand}" />
+        <KeyBinding Key="Enter" Modifiers="Control" Command="{Binding ShareAllPendingCommand}" />
+        <KeyBinding Key="D1" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:Page.Share}" />
+        <KeyBinding Key="D2" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:Page.History}" />
+        <KeyBinding Key="D3" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="{x:Static vm:Page.Settings}" />
+    </Window.InputBindings>
+
     <Window.Resources>
-        <!-- Auto-detect theme from system -->
-        <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="pack://application:,,,/PresentationFramework.Aero2;component/themes/Aero2.NormalColor.xaml" />
-            </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+        <!-- Small square button holding one glyph. Always give it a ToolTip and AutomationProperties.Name. -->
+        <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Width" Value="34" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="4,0,0,0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="ToolTipService.InitialShowDelay" Value="400" />
+        </Style>
+
+        <Style x:Key="Secondary" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+
+        <Style x:Key="NavButton" TargetType="RadioButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="Padding" Value="14,6" />
+            <Setter Property="MinWidth" Value="88" />
+        </Style>
+
+        <Style x:Key="SettingRow" TargetType="Border" BasedOn="{StaticResource Card}">
+            <Setter Property="Margin" Value="0,0,0,4" />
+            <Setter Property="MinHeight" Value="62" />
+        </Style>
+
+        <Style x:Key="SectionHeader" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
+            <Setter Property="Margin" Value="2,14,0,8" />
+        </Style>
+
+        <Style x:Key="Glyph" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- Drop zone highlights while something is dragged over the window. -->
+        <Style x:Key="DropZone" TargetType="Border">
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="Padding" Value="20,26" />
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ControlStrongStrokeColorDefaultBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsDragOver, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
-    <Grid Background="{DynamicResource {x:Static SystemColors.ControlBrushKey}}" Margin="20">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+    <Grid>
+        <Grid Margin="20,14,20,16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
-        <TextBlock Text="InstaShare" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,20" />
-
-        <StackPanel Grid.Row="1" VerticalAlignment="Top" HorizontalAlignment="Center" Width="400">
-            <StackPanel.Resources>
-                <Style TargetType="{x:Type Button}">
-                    <Setter Property="Margin" Value="0,10,0,0"/>
-                </Style>
-            </StackPanel.Resources>
-            <Button x:Name="SelectFileButton" Content="Select File" Height="40" Click="SelectFile_Click"/>
-
-            <Button x:Name="SelectFolderButton" Content="Select Folder" Height="40" Click="SelectFolder_Click"/>
-
-            <TextBlock x:Name="SelectedPathText" Text="No file/folder selected." TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,4"/>
-
-            <ProgressBar x:Name="UploadProgressBar" Height="6" Minimum="0" Maximum="100" Margin="0,0,0,10" Visibility="Collapsed"/>
-
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                <TextBox x:Name="LinkTextBox" Width="300" IsReadOnly="True" Visibility="Collapsed"/>
-                <Button x:Name="CopyLinkButton" Content="Copy Link" Click="CopyLinkButton_Click" Visibility="Collapsed"/>
+            <!-- Navigation -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,14" KeyboardNavigation.TabNavigation="Once" KeyboardNavigation.DirectionalNavigation="Cycle">
+                <RadioButton Style="{StaticResource NavButton}" GroupName="Nav" Content="Share" ToolTip="Share (Ctrl+1)"
+                             IsChecked="{Binding SelectedPage, Converter={StaticResource PageIs}, ConverterParameter=Share}" />
+                <RadioButton Style="{StaticResource NavButton}" GroupName="Nav" ToolTip="History (Ctrl+2)"
+                             IsChecked="{Binding SelectedPage, Converter={StaticResource PageIs}, ConverterParameter=History}">
+                    <TextBlock>
+                        <Run Text="History" /><Run Text="{Binding History.Count, StringFormat=' {0}', Mode=OneWay}" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    </TextBlock>
+                </RadioButton>
+                <RadioButton Style="{StaticResource NavButton}" GroupName="Nav" Content="Settings" ToolTip="Settings (Ctrl+3)"
+                             IsChecked="{Binding SelectedPage, Converter={StaticResource PageIs}, ConverterParameter=Settings}" />
             </StackPanel>
 
-            <Button x:Name="CancelButton" Content="Cancel Upload" Height="40" Click="CancelUpload_Click" Visibility="Collapsed"/>
+            <!-- ===== Share page ===== -->
+            <Grid Grid.Row="1" Visibility="{Binding SelectedPage, Converter={StaticResource VisibleWhenEquals}, ConverterParameter=Share}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-            <Button x:Name="DeleteExpiredButton" Content="Delete Old Shares" Height="40" Click="DeleteExpired_Click"/>
-        </StackPanel>
+                <Border Style="{StaticResource DropZone}" AutomationProperties.Name="Drop zone">
+                    <StackPanel HorizontalAlignment="Center">
+                        <TextBlock Style="{StaticResource Glyph}" Text="&#xE898;" FontSize="34" HorizontalAlignment="Center"
+                                   Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" Margin="0,0,0,10" />
+                        <TextBlock Text="Drop files or folders here" Style="{StaticResource SubtitleTextBlockStyle}" HorizontalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,12,0,0">
+                            <Button Content="Browse files" Click="BrowseFiles_Click" Style="{StaticResource AccentButtonStyle}" Padding="14,6" ToolTip="Ctrl+O" />
+                            <Button Content="Browse folder" Click="BrowseFolder_Click" Padding="14,6" Margin="8,0,0,0" ToolTip="Ctrl+Shift+O" />
+                            <Button Content="Paste" Command="{Binding PasteCommand}" Padding="14,6" Margin="8,0,0,0"
+                                    ToolTip="Share copied files, a screenshot or text (Ctrl+V)" />
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource Secondary}" HorizontalAlignment="Center" Margin="0,12,0,0">
+                            <Run Text="Ctrl+V shares what you've copied" /><Run Text="{Binding Settings.HotkeyText, StringFormat=' · {0} from anywhere', Mode=OneWay}" />
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
 
-        <TextBlock Grid.Row="2" Text="@YourCodeLab" FontSize="12" HorizontalAlignment="Center" Opacity="0.4" Margin="0,20,0,0"/>
+                <!-- Expiry and queue actions -->
+                <DockPanel Grid.Row="1" Margin="0,12,0,8" LastChildFill="False">
+                    <TextBlock Text="Link expires in" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <ComboBox ItemsSource="{Binding ExpiryOptions}" SelectedItem="{Binding SelectedExpiry}" DisplayMemberPath="Label"
+                              MinWidth="120" AutomationProperties.Name="Link expires in" />
+                    <Button DockPanel.Dock="Right" Content="Clear finished" Command="{Binding ClearFinishedCommand}"
+                            Visibility="{Binding HasFinished, Converter={StaticResource VisibleWhen}}" />
+                    <Button DockPanel.Dock="Right" Content="Share all" Command="{Binding ShareAllPendingCommand}" Style="{StaticResource AccentButtonStyle}"
+                            Margin="0,0,8,0" ToolTip="Ctrl+Enter" Visibility="{Binding HasPending, Converter={StaticResource VisibleWhen}}" />
+                </DockPanel>
+
+                <!-- Queue -->
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <ItemsControl ItemsSource="{Binding Transfers}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:TransferItemViewModel}">
+                                <Border Style="{StaticResource Card}" AutomationProperties.Name="{Binding Name}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <Image Grid.RowSpan="3" Source="{Binding Icon}" Width="36" Height="36" Margin="0,0,12,0" VerticalAlignment="Top"
+                                               RenderOptions.BitmapScalingMode="HighQuality" />
+
+                                        <DockPanel Grid.Column="1">
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding SizeText}" Style="{StaticResource Secondary}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding LocalPath}" />
+                                        </DockPanel>
+
+                                        <ProgressBar Grid.Row="1" Grid.Column="1" Height="4" Margin="0,8,0,6" Maximum="100" Value="{Binding Percent}"
+                                                     IsIndeterminate="{Binding IsIndeterminate}" Visibility="{Binding ShowProgress, Converter={StaticResource VisibleWhen}}"
+                                                     AutomationProperties.Name="{Binding Name, StringFormat='{}{0} upload progress'}" />
+
+                                        <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,2,0,0">
+                                            <TextBlock Text="{Binding StatusText}" Style="{StaticResource Secondary}" x:Name="Status" />
+                                            <TextBlock Text="{Binding DetailText}" Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None"
+                                                       Visibility="{Binding DetailText, Converter={StaticResource VisibleWhen}}" Margin="0,2,0,0" />
+                                        </StackPanel>
+
+                                        <!-- Actions -->
+                                        <StackPanel Grid.Column="2" Grid.RowSpan="3" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                                            <Button Content="Share" Style="{StaticResource AccentButtonStyle}" Padding="12,5" Margin="4,0,0,0"
+                                                    Command="{Binding DataContext.ShareItemCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                    Visibility="{Binding IsPending, Converter={StaticResource VisibleWhen}}" />
+                                            <Button Content="{Binding RetryText}" Padding="12,5" Margin="4,0,0,0"
+                                                    Command="{Binding DataContext.RetryCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                    Visibility="{Binding CanRetry, Converter={StaticResource VisibleWhen}}" />
+                                            <StackPanel Orientation="Horizontal" Visibility="{Binding HasUsableLink, Converter={StaticResource VisibleWhen}}">
+                                                <Button Style="{StaticResource IconButton}" Content="&#xE8C8;" ToolTip="Copy link" AutomationProperties.Name="Copy link"
+                                                        Command="{Binding DataContext.CopyLinkCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                <Button Style="{StaticResource IconButton}" Content="&#xED14;" ToolTip="Show QR code" AutomationProperties.Name="Show QR code"
+                                                        Command="{Binding DataContext.ShowQrCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                <Button Style="{StaticResource IconButton}" Content="&#xE72D;" ToolTip="Share link…" AutomationProperties.Name="Share link"
+                                                        Command="{Binding DataContext.ShareSheetCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                <Button Style="{StaticResource IconButton}" Content="&#xE774;" ToolTip="Open in browser" AutomationProperties.Name="Open in browser"
+                                                        Command="{Binding DataContext.OpenLinkCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                            </StackPanel>
+                                            <Button Style="{StaticResource IconButton}" Content="&#xE711;" ToolTip="{Binding CloseToolTip}" AutomationProperties.Name="{Binding CloseToolTip}"
+                                                    IsEnabled="{Binding IsCancelling, Converter={StaticResource Not}}"
+                                                    Command="{Binding DataContext.CloseItemCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding State}" Value="{x:Static vm:TransferState.Failed}">
+                                        <Setter TargetName="Status" Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding State}" Value="{x:Static vm:TransferState.CompletedWithErrors}">
+                                        <Setter TargetName="Status" Property="Foreground" Value="{DynamicResource SystemFillColorCautionBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding State}" Value="{x:Static vm:TransferState.Completed}">
+                                        <Setter TargetName="Status" Property="Foreground" Value="{DynamicResource SystemFillColorSuccessBrush}" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+
+            <!-- ===== History page ===== -->
+            <Grid Grid.Row="1" Visibility="{Binding SelectedPage, Converter={StaticResource VisibleWhenEquals}, ConverterParameter=History}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <DockPanel Margin="0,0,0,10">
+                    <Button DockPanel.Dock="Right" Command="{Binding CleanUpNowCommand}" IsEnabled="{Binding IsCleaningUp, Converter={StaticResource Not}}"
+                            ToolTip="Expired shares are also deleted automatically every 15 minutes">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Style="{StaticResource Glyph}" Text="&#xE74D;" Margin="0,0,8,0" />
+                            <TextBlock Text="Delete expired now" />
+                        </StackPanel>
+                    </Button>
+                    <TextBlock Style="{StaticResource Secondary}" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="None"
+                               Text="Shares are deleted automatically when they expire." />
+                </DockPanel>
+
+                <TextBlock Grid.Row="1" Text="Nothing shared yet. Your shares will show up here until they expire." Style="{StaticResource Secondary}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="None"
+                           Visibility="{Binding HasHistory, Converter={StaticResource VisibleWhen}, ConverterParameter=Invert}" />
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <ItemsControl ItemsSource="{Binding History}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:HistoryItemViewModel}">
+                                <Border Style="{StaticResource Card}" AutomationProperties.Name="{Binding Name}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Record.FilePath}" />
+                                            <TextBlock Text="{Binding Summary}" Style="{StaticResource Secondary}" Margin="0,3,0,0" />
+                                            <TextBlock Text="{Binding ExpiresText}" Style="{StaticResource Secondary}" Margin="0,2,0,0" x:Name="Expires" />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0" x:Name="Actions">
+                                            <Button Style="{StaticResource IconButton}" Content="&#xE8C8;" ToolTip="Copy link" AutomationProperties.Name="Copy link"
+                                                    Command="{Binding DataContext.CopyLinkCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                            <Button Style="{StaticResource IconButton}" Content="&#xED14;" ToolTip="Show QR code" AutomationProperties.Name="Show QR code"
+                                                    Command="{Binding DataContext.ShowQrCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                            <Button Style="{StaticResource IconButton}" Content="&#xE72D;" ToolTip="Share link…" AutomationProperties.Name="Share link"
+                                                    Command="{Binding DataContext.ShareSheetCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                            <Button Style="{StaticResource IconButton}" Content="&#xE774;" ToolTip="Open in browser" AutomationProperties.Name="Open in browser"
+                                                    Command="{Binding DataContext.OpenLinkCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                            <Button Style="{StaticResource IconButton}" Content="&#xE74D;" ToolTip="Delete now" AutomationProperties.Name="Delete now"
+                                                    Command="{Binding DataContext.AskDeleteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                        </StackPanel>
+
+                                        <!-- Inline confirmation instead of a dialog -->
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0"
+                                                    Visibility="{Binding IsConfirmingDelete, Converter={StaticResource VisibleWhen}}">
+                                            <TextBlock Text="Delete for everyone?" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                            <Button Content="Delete" Padding="12,5" Foreground="{DynamicResource SystemFillColorCriticalBrush}"
+                                                    Command="{Binding DataContext.DeleteShareCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                            <Button Content="Keep" Padding="12,5" Margin="6,0,0,0"
+                                                    Command="{Binding DataContext.CancelDeleteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                        </StackPanel>
+
+                                        <TextBlock Grid.Column="1" Text="Deleting…" Style="{StaticResource Secondary}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                                   Visibility="{Binding IsDeleting, Converter={StaticResource VisibleWhen}}" />
+                                    </Grid>
+                                </Border>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsConfirmingDelete}" Value="True">
+                                        <Setter TargetName="Actions" Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsDeleting}" Value="True">
+                                        <Setter TargetName="Actions" Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsExpired}" Value="True">
+                                        <Setter TargetName="Expires" Property="Foreground" Value="{DynamicResource SystemFillColorCautionBrush}" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+
+            <!-- ===== Settings page ===== -->
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" DataContext="{Binding Settings}"
+                          Visibility="{Binding DataContext.SelectedPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource VisibleWhenEquals}, ConverterParameter=Settings}">
+                <StackPanel Margin="0,0,4,0">
+                    <TextBlock Text="Sharing" Style="{StaticResource SectionHeader}" Margin="2,0,0,8" />
+                    <Border Style="{StaticResource SettingRow}">
+                        <DockPanel>
+                            <ComboBox DockPanel.Dock="Right" ItemsSource="{Binding ExpiryOptions}" SelectedItem="{Binding DefaultExpiry}" DisplayMemberPath="Label"
+                                      MinWidth="120" VerticalAlignment="Center" AutomationProperties.Name="Default expiry" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Default expiry" />
+                                <TextBlock Text="How long new links work. You can change it per upload." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                    <Border Style="{StaticResource SettingRow}">
+                        <DockPanel>
+                            <CheckBox DockPanel.Dock="Right" IsChecked="{Binding AutoCopyLink}" VerticalAlignment="Center" AutomationProperties.Name="Copy link automatically" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Copy link automatically" />
+                                <TextBlock Text="Puts the link on the clipboard as soon as it works, while the upload is still running." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                    <Border Style="{StaticResource SettingRow}">
+                        <DockPanel>
+                            <CheckBox DockPanel.Dock="Right" IsChecked="{Binding ReviewBeforeSharing}" VerticalAlignment="Center" AutomationProperties.Name="Review before sharing" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Review before sharing" />
+                                <TextBlock Text="Show what you added and wait for Share instead of uploading straight away." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <TextBlock Text="Background" Style="{StaticResource SectionHeader}" />
+                    <Border Style="{StaticResource SettingRow}">
+                        <DockPanel>
+                            <CheckBox DockPanel.Dock="Right" IsChecked="{Binding KeepRunningInTray}" VerticalAlignment="Center" AutomationProperties.Name="Keep running in the tray" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Keep running in the notification area" />
+                                <TextBlock Text="Closing the window keeps InstaShare and its uploads running." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                    <Border Style="{StaticResource SettingRow}">
+                        <DockPanel>
+                            <CheckBox DockPanel.Dock="Right" IsChecked="{Binding StartWithWindows}" VerticalAlignment="Center" AutomationProperties.Name="Start with Windows" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Start with Windows" />
+                                <TextBlock Text="Starts in the notification area when you sign in." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                    <Border Style="{StaticResource SettingRow}">
+                        <DockPanel>
+                            <CheckBox DockPanel.Dock="Right" IsChecked="{Binding GlobalHotkey}" VerticalAlignment="Center" AutomationProperties.Name="Global shortcut" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="{Binding HotkeyText, StringFormat='Share clipboard with {0}'}" />
+                                <TextBlock Text="Works from any app, even with the window closed." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
+                                <TextBlock Text="{Binding HotkeyError}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" FontSize="12" TextWrapping="Wrap"
+                                           Visibility="{Binding HotkeyError, Converter={StaticResource VisibleWhen}}" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <TextBlock Text="Explorer" Style="{StaticResource SectionHeader}" />
+                    <Border Style="{StaticResource SettingRow}">
+                        <DockPanel>
+                            <CheckBox DockPanel.Dock="Right" IsChecked="{Binding SendTo}" VerticalAlignment="Center" AutomationProperties.Name="Send to menu" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Add to Send to menu" />
+                                <TextBlock Text="Right-click → Send to → InstaShare. Sends every selected item at once." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                    <Border Style="{StaticResource SettingRow}">
+                        <DockPanel>
+                            <CheckBox DockPanel.Dock="Right" IsChecked="{Binding ContextMenu}" VerticalAlignment="Center" AutomationProperties.Name="Explorer menu" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Add &quot;Share with InstaShare&quot; to the right-click menu" />
+                                <TextBlock Text="On Windows 11 it's under Show more options. Replaces AddContextMenu.reg; no admin rights needed." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <TextBlock Text="Appearance" Style="{StaticResource SectionHeader}" />
+                    <Border Style="{StaticResource SettingRow}">
+                        <DockPanel>
+                            <ComboBox DockPanel.Dock="Right" ItemsSource="{Binding ThemeOptions}" SelectedItem="{Binding Theme}" MinWidth="120" VerticalAlignment="Center"
+                                      AutomationProperties.Name="Theme" />
+                            <TextBlock Text="Theme" VerticalAlignment="Center" />
+                        </DockPanel>
+                    </Border>
+
+                    <TextBlock Text="Keyboard shortcuts" Style="{StaticResource SectionHeader}" />
+                    <Border Style="{StaticResource Card}">
+                        <TextBlock Style="{StaticResource Secondary}" TextTrimming="None" LineHeight="20">
+                            Ctrl+O browse files · Ctrl+Shift+O browse folder · Ctrl+V share clipboard<LineBreak />
+                            Ctrl+Enter share all · Ctrl+C copy latest link · Ctrl+1/2/3 switch page · Esc close or cancel
+                        </TextBlock>
+                    </Border>
+
+                    <TextBlock Text="@YourCodeLab" Style="{StaticResource Secondary}" HorizontalAlignment="Center" Opacity="0.6" Margin="0,12,0,0" />
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ===== Message bar ===== -->
+            <Border Grid.Row="2" CornerRadius="6" BorderThickness="1" Padding="12,8" Margin="0,10,0,0" x:Name="NoticeBar"
+                    DataContext="{Binding Notice}" Visibility="{Binding Converter={StaticResource VisibleWhen}}"
+                    AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="{Binding Title}">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="{DynamicResource SystemFillColorAttentionBackgroundBrush}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Severity}" Value="{x:Static vm:NoticeSeverity.Success}">
+                                <Setter Property="Background" Value="{DynamicResource SystemFillColorSuccessBackgroundBrush}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Severity}" Value="{x:Static vm:NoticeSeverity.Warning}">
+                                <Setter Property="Background" Value="{DynamicResource SystemFillColorCautionBackgroundBrush}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Severity}" Value="{x:Static vm:NoticeSeverity.Error}">
+                                <Setter Property="Background" Value="{DynamicResource SystemFillColorCriticalBackgroundBrush}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <DockPanel>
+                    <TextBlock Text="{Binding Glyph}" FontSize="16" Margin="0,0,10,0" VerticalAlignment="Top" Padding="0,2,0,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource Glyph}">
+                                <Setter Property="Foreground" Value="{DynamicResource SystemFillColorAttentionBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Severity}" Value="{x:Static vm:NoticeSeverity.Success}">
+                                        <Setter Property="Foreground" Value="{DynamicResource SystemFillColorSuccessBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Severity}" Value="{x:Static vm:NoticeSeverity.Warning}">
+                                        <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCautionBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Severity}" Value="{x:Static vm:NoticeSeverity.Error}">
+                                        <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE711;" FontSize="12" ToolTip="Dismiss" AutomationProperties.Name="Dismiss"
+                            Command="{Binding DataContext.DismissNoticeCommand, RelativeSource={RelativeSource AncestorType=Window}}" VerticalAlignment="Top" />
+                    <Button DockPanel.Dock="Right" Content="{Binding ActionText}" Command="{Binding ActionCommand}" Padding="12,4" VerticalAlignment="Top"
+                            Visibility="{Binding ActionText, Converter={StaticResource VisibleWhen}}" />
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="12" Visibility="{Binding Message, Converter={StaticResource VisibleWhen}}" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- ===== QR code overlay ===== -->
+        <Grid Visibility="{Binding Qr, Converter={StaticResource VisibleWhen}}" Background="#99000000" MouseLeftButtonDown="QrOverlay_MouseDown">
+            <Border Style="{StaticResource Card}" Background="{DynamicResource SolidBackgroundFillColorBaseBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Padding="24" DataContext="{Binding Qr}" MouseLeftButtonDown="QrCard_MouseDown" AutomationProperties.Name="QR code">
+                <StackPanel Width="260">
+                    <TextBlock Text="{Binding Name}" Style="{StaticResource SubtitleTextBlockStyle}" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" />
+                    <TextBlock Text="Scan with your phone's camera" Style="{StaticResource Secondary}" HorizontalAlignment="Center" Margin="0,4,0,14" />
+                    <!-- QR codes need a light background to scan, whatever the theme. -->
+                    <Border Background="White" CornerRadius="6" Padding="10">
+                        <Image Source="{Binding Image}" RenderOptions.BitmapScalingMode="NearestNeighbor" Width="220" Height="220"
+                               AutomationProperties.Name="{Binding Link, StringFormat='QR code for {0}'}" />
+                    </Border>
+                    <TextBlock Text="{Binding Link}" Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" HorizontalAlignment="Center" Margin="0,12,0,0" />
+                    <Button Content="Close" HorizontalAlignment="Center" Margin="0,14,0,0" Padding="20,5" IsCancel="False" x:Name="QrClose"
+                            Command="{Binding DataContext.CloseQrCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

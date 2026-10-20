@@ -26,10 +26,18 @@ namespace InstaShare.Services
         Task<(string folderId, string sharedLink, IReadOnlyList<string> failedFiles)> UploadFolderWithStructure(string localRootPath, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Deletes a file from the service.
+        /// Uploads some files of an existing folder share again, typically the ones that failed.
         /// </summary>
-        /// <param name="fileId">The ID of the file to delete.</param>
-        /// <returns>A task that represents the asynchronous operation.</returns>
-        Task DeleteFile(string fileId);
+        /// <param name="folderId">The folder ID returned by <see cref="UploadFolderWithStructure"/>.</param>
+        /// <param name="localRootPath">The local folder that was shared.</param>
+        /// <param name="relativePaths">Paths relative to <paramref name="localRootPath"/>, with forward slashes.</param>
+        /// <returns>The paths that failed again.</returns>
+        Task<IReadOnlyList<string>> RetryFolderFiles(string folderId, string localRootPath, IReadOnlyList<string> relativePaths, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Deletes a share and everything in it, including its index.
+        /// </summary>
+        /// <param name="remoteId">The file or folder ID returned by an upload.</param>
+        Task DeleteShare(string remoteId, CancellationToken cancellationToken = default);
     }
 }

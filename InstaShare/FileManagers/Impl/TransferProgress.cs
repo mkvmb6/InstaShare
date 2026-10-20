@@ -6,7 +6,7 @@ namespace InstaShare.FileManagers.Impl
     /// Thread-safe byte counter shared by every stream of one upload. Reports at most once per
     /// <see cref="ReportIntervalMs"/>, so the upload never waits on the UI.
     /// </summary>
-    internal sealed class TransferProgress(long totalBytes, Action<double, string> report)
+    internal sealed class TransferProgress(long totalBytes, Action<double, string, long, TimeSpan?> report)
     {
         private const long ReportIntervalMs = 100;
         private const double Alpha = 0.3; // Smoothing factor for EMA per report, lower means more smooth
@@ -31,6 +31,8 @@ namespace InstaShare.FileManagers.Impl
         {
             double percent;
             string speedText;
+            long transferred;
+            TimeSpan? eta;
             lock (_lock)
             {
                 var nowMs = _clock.ElapsedMilliseconds;
@@ -38,7 +40,7 @@ namespace InstaShare.FileManagers.Impl
                 if (!force && elapsedMs < ReportIntervalMs)
                     return;
 
-                var transferred = Interlocked.Read(ref _transferred);
+                transferred = Interlocked.Read(ref _transferred);
                 // Forced reports can come a few ms apart; only sample speed over a full interval.
                 if (elapsedMs >= ReportIntervalMs)
                 {
@@ -50,8 +52,18 @@ namespace InstaShare.FileManagers.Impl
 
                 percent = totalBytes > 0 ? Math.Clamp(transferred * 100.0 / totalBytes, 0, 100) : 100;
                 speedText = FormatSpeed(_emaBytesPerSecond ?? 0);
+                eta = EstimateRemaining(totalBytes - transferred, _emaBytesPerSecond ?? 0);
             }
-            report(percent, speedText);
+            report(percent, speedText, transferred, eta);
+        }
+
+        private static TimeSpan? EstimateRemaining(long remainingBytes, double bytesPerSecond)
+        {
+            if (remainingBytes <= 0 || bytesPerSecond <= 0)
+                return null;
+            var seconds = remainingBytes / bytesPerSecond;
+            // A stalled transfer gives an absurd estimate; show nothing rather than "300 days left".
+            return seconds < TimeSpan.FromDays(1).TotalSeconds ? TimeSpan.FromSeconds(seconds) : null;
         }
 
         private static string FormatSpeed(double bytesPerSecond)

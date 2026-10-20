@@ -19,6 +19,7 @@ namespace InstaShare.FileManagers.Impl
         private const int MaxParts = 10_000;
         private const int PartConcurrency = 4;
         private const int FileConcurrency = 4;
+        private const int DeleteConcurrency = 8;
         private const int MaxAttempts = 4;
         private const long MinBytesPerSecond = 50_000; // Assuming min speed around 50KBps
         private static readonly TimeSpan MinRequestTimeout = TimeSpan.FromMinutes(5);
@@ -36,14 +37,26 @@ namespace InstaShare.FileManagers.Impl
             _s3 = R2ClientFactory.CreateR2Client();
         }
 
-        public async Task DeleteFile(string fileId)
+        public async Task DeleteShare(string remoteId, CancellationToken cancellationToken = default)
         {
-            var request = new DeleteObjectRequest
+            // A share is every object under its top-level folder: the files plus index.json.
+            var prefix = ShareKeys.GetSharePrefix(remoteId);
+            string? continuationToken = null;
+            do
             {
-                BucketName = Constants.R2BucketName,
-                Key = fileId
-            };
-            await _s3.DeleteObjectAsync(request);
+                var page = await _s3.ListObjectsV2Async(new ListObjectsV2Request
+                {
+                    BucketName = Constants.R2BucketName,
+                    Prefix = prefix,
+                    ContinuationToken = continuationToken
+                }, cancellationToken);
+
+                var keys = page.S3Objects?.Select(o => o.Key).ToList() ?? [];
+                await Parallel.ForEachAsync(keys, new ParallelOptions { MaxDegreeOfParallelism = DeleteConcurrency, CancellationToken = cancellationToken },
+                    async (key, ct) => await _s3.DeleteObjectAsync(Constants.R2BucketName, key, ct));
+
+                continuationToken = page.IsTruncated == true ? page.NextContinuationToken : null;
+            } while (continuationToken != null);
         }
 
         public async Task<(string fileId, string sharedLink)> UploadFile(string filePath, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
@@ -63,11 +76,12 @@ namespace InstaShare.FileManagers.Impl
             };
             var index = new IndexPublisher([entry], (json, ct) => UploadIndexJson(json, folderId, ct));
 
-            progress?.Report(new UploadProgress(fileId, sharedLink, "Generating link...", 0, null));
+            progress?.Report(new UploadProgress(fileId, sharedLink, "Generating link...", 0, null, 0, totalSize, null, LinkLive: false));
             await index.FlushAsync(cancellationToken);
+            progress?.Report(new UploadProgress(fileId, sharedLink, "Uploading", 0, null, 0, totalSize, null));
 
-            var tracker = new TransferProgress(totalSize, (percent, speed) =>
-                progress?.Report(new UploadProgress(fileId, sharedLink, $"Uploading: {percent:0.0}%", percent, speed)));
+            var tracker = new TransferProgress(totalSize, (percent, speed, sent, eta) =>
+                progress?.Report(new UploadProgress(fileId, sharedLink, "Uploading", percent, speed, sent, totalSize, eta)));
             try
             {
                 await UploadObject(filePath, fileId, tracker, cancellationToken);
@@ -99,20 +113,67 @@ namespace InstaShare.FileManagers.Impl
             var entries = GetIndex(files, folderName, baseFolder, localRootPath);
             var index = new IndexPublisher(entries, (json, ct) => UploadIndexJson(json, uniqueFolderId, ct));
 
-            progress?.Report(new UploadProgress(baseFolder, sharedLink, "Generating link...", 0, null));
+            var totalSize = entries.Sum(e => e.size);
+            progress?.Report(new UploadProgress(baseFolder, sharedLink, "Generating link...", 0, null, 0, totalSize, null, LinkLive: false));
+            await index.FlushAsync(cancellationToken);
+            index.StartPeriodicFlush(IndexFlushInterval);
+            progress?.Report(new UploadProgress(baseFolder, sharedLink, $"0/{files.Length} files", 0, null, 0, totalSize, null));
+
+            var failedFiles = await UploadFolderFiles(localRootPath, baseFolder, sharedLink, [.. files.Zip(entries)], totalSize, index, progress, cancellationToken);
+            await index.CompleteAsync();
+            return (baseFolder, sharedLink, failedFiles);
+        }
+
+        public async Task<IReadOnlyList<string>> RetryFolderFiles(string folderId, string localRootPath, IReadOnlyList<string> relativePaths, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
+        {
+            var uniqueFolderId = ShareKeys.GetSharePrefix(folderId).TrimEnd('/');
+            var folderName = folderId[(uniqueFolderId.Length + 1)..];
+            var sharedLink = $"{Constants.AppBaseUrl}/{folderId}";
+
+            // The published index is the source of truth for every other file's status.
+            List<FileIndex> entries;
+            using (var response = await _s3.GetObjectAsync(Constants.R2BucketName, $"{uniqueFolderId}/index.json", cancellationToken))
+            using (var reader = new StreamReader(response.ResponseStream))
+                entries = JsonConvert.DeserializeObject<List<FileIndex>>(await reader.ReadToEndAsync(cancellationToken)) ?? [];
+
+            var byPath = entries.ToDictionary(e => e.path);
+            var work = new List<(string file, FileIndex entry)>();
+            foreach (var relativePath in relativePaths)
+            {
+                if (!byPath.TryGetValue($"{folderName}/{relativePath}", out var entry))
+                    continue;
+                var file = Path.Combine(localRootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                if (File.Exists(file))
+                    entry.size = new FileInfo(file).Length;
+                entry.status = UploadStatus.Uploading;
+                work.Add((file, entry));
+            }
+
+            var index = new IndexPublisher(entries, (json, ct) => UploadIndexJson(json, uniqueFolderId, ct));
+            var totalSize = work.Sum(w => w.entry.size);
+            progress?.Report(new UploadProgress(folderId, sharedLink, "Preparing retry...", 0, null, 0, totalSize, null));
             await index.FlushAsync(cancellationToken);
             index.StartPeriodicFlush(IndexFlushInterval);
 
+            var stillFailed = await UploadFolderFiles(localRootPath, folderId, sharedLink, work, totalSize, index, progress, cancellationToken);
+            await index.CompleteAsync();
+            return stillFailed;
+        }
+
+        /// <summary>
+        /// Uploads files of a folder share in parallel. A file that fails is marked failed and returned, the rest carry on.
+        /// </summary>
+        private async Task<IReadOnlyList<string>> UploadFolderFiles(string localRootPath, string baseFolder, string sharedLink, IReadOnlyList<(string file, FileIndex entry)> work, long totalSize, IndexPublisher index, IProgress<UploadProgress>? progress, CancellationToken cancellationToken)
+        {
             var failedFiles = new ConcurrentBag<string>();
             var completedFiles = 0;
-            var totalSize = entries.Sum(e => e.size);
-            var tracker = new TransferProgress(totalSize, (percent, speed) =>
+            var tracker = new TransferProgress(totalSize, (percent, speed, sent, eta) =>
                 progress?.Report(new UploadProgress(baseFolder, sharedLink,
-                    $"Uploading {Volatile.Read(ref completedFiles)}/{files.Length} files: {percent:0.0}%", percent, speed)));
+                    $"{Volatile.Read(ref completedFiles)}/{work.Count} files", percent, speed, sent, totalSize, eta)));
 
             try
             {
-                await Parallel.ForEachAsync(files.Zip(entries), new ParallelOptions { MaxDegreeOfParallelism = FileConcurrency, CancellationToken = cancellationToken }, async (item, ct) =>
+                await Parallel.ForEachAsync(work, new ParallelOptions { MaxDegreeOfParallelism = FileConcurrency, CancellationToken = cancellationToken }, async (item, ct) =>
                 {
                     var (file, entry) = item;
                     var relativePath = Path.GetRelativePath(localRootPath, file).Replace("\\", "/");
@@ -137,8 +198,7 @@ namespace InstaShare.FileManagers.Impl
                 throw;
             }
 
-            await index.CompleteAsync();
-            return (baseFolder, sharedLink, [.. failedFiles]);
+            return [.. failedFiles];
         }
 
         private static List<FileIndex> GetIndex(string[] files, string folderName, string baseFolder, string localRootPath)
