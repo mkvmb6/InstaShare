@@ -31,9 +31,9 @@ namespace InstaShare.Services
                 return;
             var data = args.Request.Data;
             data.Properties.Title = pending.title;
-            data.Properties.Description = pending.link;
+            // Only the link itself. Apps combine text, link and description into one message,
+            // so also setting the link as text or description makes it appear twice.
             data.SetWebLink(new Uri(pending.link));
-            data.SetText(pending.link);
         }
     }
 }
