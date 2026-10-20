@@ -1,7 +1,6 @@
 // Link-preview tags for one share. Kept free of Pages APIs except rewriteHead, so it can be unit-tested.
 
-import type { FileEntry } from '../src/models/fileEntry';
-import { formatBytes, formatDuration, getFileKind, normalizePath, parseIndex } from '../src/utils/utils';
+import { formatBytes, formatDuration, normalizePath, parseIndex } from '../src/utils/utils';
 
 export interface PreviewEnv {
     /** Optional override; defaults to the production CDN. */
@@ -19,11 +18,6 @@ export interface Preview {
 }
 
 const DEFAULT_CDN = 'https://cdn.instashare.mohitkumarverma.com';
-// WhatsApp quietly skips images much over this, so bigger ones fall back to the InstaShare card.
-// The limit isn't documented; 600 KB is a conservative guess that keeps typical screenshots and PNGs.
-export const MAX_PREVIEW_IMAGE_BYTES = 600 * 1024;
-// Formats chat apps reliably render as preview images.
-const PREVIEW_IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp']);
 
 /** "/view/<shareId>/..." → "<shareId>", decoded. */
 export function shareIdFromPath(pathname: string): string | null {
@@ -65,28 +59,15 @@ export async function buildPreview(shareId: string, pageUrl: URL, env: PreviewEn
     if (Number.isFinite(expires)) parts.push(`expires in ${formatDuration(expires)}`);
     const description = `${capitalize(parts.join(' · '))}. Shared with InstaShare.`;
 
-    // Made by desktop 2.1+: the image, a video frame, a PDF page or a collage, already small.
-    if (index.preview?.url) {
-        const { url, width, height } = index.preview;
-        return {
-            title: name, description, image: url, imageAlt: name, card: 'summary_large_image',
-            imageSize: width && height ? { width, height } : undefined,
-        };
-    }
+    // The desktop app makes the picture (the image, a video frame, a PDF page or a collage) and lists it in index.json.
+    // Shares with nothing to picture have no preview and get the InstaShare card with their own details.
+    if (!index.preview?.url) return { ...fallback, title: name, description, imageAlt: name };
 
-    // Older shares: use an uploaded image if one is small enough.
-    const image = pickImage(files);
-    return image
-        ? { title: name, description, image: image.url, imageAlt: name, card: 'summary_large_image' }
-        : { ...fallback, title: name, description, imageAlt: name };
-}
-
-/** The share's own picture when there's a suitable one: the single image, or the first image in a folder. */
-function pickImage(files: FileEntry[]): FileEntry | undefined {
-    return files
-        .filter((f) => f.status === 'uploaded' && (f.size ?? Infinity) <= MAX_PREVIEW_IMAGE_BYTES)
-        .filter((f) => getFileKind(f.path) === 'image' && PREVIEW_IMAGE_EXTS.has(f.path.split('.').pop()!.toLowerCase()))
-        .sort((a, b) => normalizePath(a.path).split('/').length - normalizePath(b.path).split('/').length)[0];
+    const { url, width, height } = index.preview;
+    return {
+        title: name, description, image: url, imageAlt: name, card: 'summary_large_image',
+        imageSize: width && height ? { width, height } : undefined,
+    };
 }
 
 function fallbackPreview(pageUrl: URL): Preview {
