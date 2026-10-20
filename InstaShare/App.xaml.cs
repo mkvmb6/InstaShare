@@ -1,6 +1,7 @@
 ﻿using InstaShare.FileManagers.Impl;
 using InstaShare.Services;
 using InstaShare.ViewModels;
+using InstaShare.Views;
 using Microsoft.Toolkit.Uwp.Notifications;
 using System.Windows;
 
@@ -25,8 +26,22 @@ namespace InstaShare
                 _ => ThemeMode.System,
             };
 
-        private void Application_Startup(object sender, StartupEventArgs e)
+        private async void Application_Startup(object sender, StartupEventArgs e)
         {
+            if (e.Args.Contains(Installer.UninstallArgument))
+            {
+                await RunUninstall();
+                return;
+            }
+            if (Installer.ShouldOfferInstall(e.Args))
+            {
+                // Downloaded exe: offer to install instead of running from Downloads.
+                var installer = new InstallerWindow([.. e.Args.Where(a => a != Installer.InstallArgument)]);
+                installer.Closed += (_, _) => Shutdown();
+                installer.Show();
+                return;
+            }
+
             var toastLaunch = ToastNotificationManagerCompat.WasCurrentProcessToastActivated();
             _instance = SingleInstance.TryAcquire();
             if (_instance == null)
@@ -91,6 +106,13 @@ namespace InstaShare
         /// </summary>
         private void HandleArguments(string[] args)
         {
+            if (args.Contains(Installer.ExitArgument))
+            {
+                // The installer is updating or removing this copy.
+                _window!.RequestExit();
+                return;
+            }
+
             var paths = args.Where(a => !a.StartsWith("--") && !a.StartsWith("-ToastActivated")).ToList();
             if (paths.Count > 0)
             {
@@ -153,6 +175,25 @@ namespace InstaShare
                     _window!.ShowAndActivate();
                     break;
             }
+        }
+
+        private async Task RunUninstall()
+        {
+            var confirm = MessageBox.Show("Remove InstaShare from this PC?\n\nShares you've already sent keep working until they expire.",
+                $"Uninstall {Constants.AppName}", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+            if (confirm == MessageBoxResult.OK)
+            {
+                try
+                {
+                    await Installer.Uninstall();
+                    MessageBox.Show("InstaShare has been removed.", $"Uninstall {Constants.AppName}");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Couldn't remove InstaShare: {ex.Message}", $"Uninstall {Constants.AppName}", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            Shutdown();
         }
 
         private void ExitApp()

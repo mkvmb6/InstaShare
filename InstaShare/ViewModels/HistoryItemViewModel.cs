@@ -43,6 +43,11 @@ namespace InstaShare.ViewModels
         public bool IsActive { get; set; }
 
         public bool IsExpired => Record.EffectiveExpiresUtc <= DateTime.UtcNow;
+
+        /// <summary>
+        /// Shares from before the InstaShare API have no token, so only the server's cleanup can remove them.
+        /// </summary>
+        public bool CanDelete => Record.Token != null;
         public string ExpiresText => Format.ExpiresIn(Record.EffectiveExpiresUtc, DateTime.UtcNow);
 
         [ObservableProperty]

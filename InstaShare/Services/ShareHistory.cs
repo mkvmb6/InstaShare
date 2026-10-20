@@ -5,14 +5,13 @@ using System.IO;
 namespace InstaShare.Services
 {
     /// <summary>
-    /// The list of shares in uploadedFiles.json, and their deletion once they expire.
+    /// The list of shares in uploadedFiles.json. The server deletes shares when they expire; this only keeps the list tidy.
     /// </summary>
     internal sealed class ShareHistory
     {
         private readonly IFileManager _fileManager;
         private readonly string _path;
         private readonly object _lock = new();
-        private readonly SemaphoreSlim _cleanupLock = new(1, 1);
 
         public ShareHistory(IFileManager fileManager, string path, string? legacyPath = null)
         {
@@ -50,43 +49,26 @@ namespace InstaShare.Services
         /// <summary>
         /// Deletes a share from storage and then from the history.
         /// </summary>
+        /// <exception cref="InvalidOperationException">The share is from before the InstaShare API and has no token.</exception>
         public async Task Delete(string fileId, CancellationToken cancellationToken = default)
         {
-            await _fileManager.DeleteShare(fileId, cancellationToken);
+            var record = GetAll().FirstOrDefault(r => r.FileId == fileId);
+            if (record?.Token is not { } token)
+                throw new InvalidOperationException("This share was made by an older version of InstaShare and can't be deleted early. It's removed automatically when it expires.");
+            await _fileManager.DeleteShare(fileId, token, cancellationToken);
             Remove(fileId);
         }
 
         /// <summary>
-        /// Deletes every expired share. One that fails to delete stays in the history and is tried again next time.
+        /// Drops expired shares from the history. The server has already deleted them, or will within the hour.
         /// </summary>
-        /// <param name="isInUse">Shares still being uploaded are skipped even if they have expired.</param>
-        /// <returns>How many shares were deleted, and how many couldn't be.</returns>
-        public async Task<(int deleted, int failed)> DeleteExpired(DateTime nowUtc, Func<string, bool>? isInUse = null, CancellationToken cancellationToken = default)
+        /// <param name="isInUse">Shares still being uploaded are kept even if they have expired.</param>
+        /// <returns>How many entries were removed.</returns>
+        public int RemoveExpired(DateTime nowUtc, Func<string, bool>? isInUse = null)
         {
-            // Startup, the timer and the button can all ask at once; one pass is enough.
-            await _cleanupLock.WaitAsync(cancellationToken);
-            try
-            {
-                var expired = GetAll().Where(r => r.EffectiveExpiresUtc <= nowUtc && isInUse?.Invoke(r.FileId) != true).ToList();
-                int deleted = 0, failed = 0;
-                foreach (var record in expired)
-                {
-                    try
-                    {
-                        await Delete(record.FileId, cancellationToken);
-                        deleted++;
-                    }
-                    catch (Exception) when (!cancellationToken.IsCancellationRequested)
-                    {
-                        failed++;
-                    }
-                }
-                return (deleted, failed);
-            }
-            finally
-            {
-                _cleanupLock.Release();
-            }
+            var removed = 0;
+            Mutate(records => removed = records.RemoveAll(r => r.EffectiveExpiresUtc <= nowUtc && isInUse?.Invoke(r.FileId) != true));
+            return removed;
         }
 
         private void Mutate(Action<List<UploadRecord>> change)

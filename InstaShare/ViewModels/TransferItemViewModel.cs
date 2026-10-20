@@ -44,6 +44,11 @@ namespace InstaShare.ViewModels
         /// </summary>
         public string? RemoteId { get; set; }
 
+        /// <summary>
+        /// Proves we created the share; needed to retry its failed files.
+        /// </summary>
+        public string? Token { get; set; }
+
         public IReadOnlyList<string> FailedFiles { get; private set; } = [];
 
         /// <summary>
@@ -113,6 +118,7 @@ namespace InstaShare.ViewModels
         public void ResetForFullRetry()
         {
             RemoteId = null;
+            Token = null;
             Link = null;
             IsLinkLive = false;
             RetryFailedOnly = false;

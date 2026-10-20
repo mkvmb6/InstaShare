@@ -4,6 +4,8 @@ namespace InstaShare.Models
 {
     /// <summary>
     /// One share in uploadedFiles.json. Records written before expiry choices existed only have the first four fields.
+    /// Token proves this app created the share; records from before the InstaShare API have none, and the server
+    /// cleans those up on its own.
     /// </summary>
     public class UploadRecord
     {
@@ -17,6 +19,7 @@ namespace InstaShare.Models
         public long? SizeBytes { get; set; }
         public bool IsFolder { get; set; }
         public ShareStatus Status { get; set; } = ShareStatus.Completed;
+        public string? Token { get; set; }
 
         public DateTime EffectiveExpiresUtc => ExpiresUtc ?? UploadTimeUtc + LegacyExpiry;
 

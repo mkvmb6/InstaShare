@@ -224,17 +224,8 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <DockPanel Margin="0,0,0,10">
-                    <Button DockPanel.Dock="Right" Command="{Binding CleanUpNowCommand}" IsEnabled="{Binding IsCleaningUp, Converter={StaticResource Not}}"
-                            ToolTip="Expired shares are also deleted automatically every 15 minutes">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Style="{StaticResource Glyph}" Text="&#xE74D;" Margin="0,0,8,0" />
-                            <TextBlock Text="Delete expired now" />
-                        </StackPanel>
-                    </Button>
-                    <TextBlock Style="{StaticResource Secondary}" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="None"
-                               Text="Shares are deleted automatically when they expire." />
-                </DockPanel>
+                <TextBlock Style="{StaticResource Secondary}" Margin="0,0,0,10" TextWrapping="Wrap" TextTrimming="None"
+                           Text="Shares are deleted automatically when they expire, even if this app isn't running." />
 
                 <TextBlock Grid.Row="1" Text="Nothing shared yet. Your shares will show up here until they expire." Style="{StaticResource Secondary}"
                            HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="None"
@@ -266,6 +257,7 @@
                                             <Button Style="{StaticResource IconButton}" Content="&#xE774;" ToolTip="Open in browser" AutomationProperties.Name="Open in browser"
                                                     Command="{Binding DataContext.OpenLinkCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
                                             <Button Style="{StaticResource IconButton}" Content="&#xE74D;" ToolTip="Delete now" AutomationProperties.Name="Delete now"
+                                                    Visibility="{Binding CanDelete, Converter={StaticResource VisibleWhen}}"
                                                     Command="{Binding DataContext.AskDeleteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
                                         </StackPanel>
 
@@ -380,7 +372,7 @@
                             <CheckBox DockPanel.Dock="Right" IsChecked="{Binding ContextMenu}" VerticalAlignment="Center" AutomationProperties.Name="Explorer menu" />
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="Add &quot;Share with InstaShare&quot; to the right-click menu" />
-                                <TextBlock Text="On Windows 11 it's under Show more options. Replaces AddContextMenu.reg; no admin rights needed." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
+                                <TextBlock Text="On Windows 11 it's under Show more options. No admin rights needed." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
                             </StackPanel>
                         </DockPanel>
                     </Border>

@@ -33,12 +33,14 @@ namespace InstaShare.Tests
 
         [Fact]
         public void ExpiryLabels() =>
-            Assert.Equal(["1 hour", "1 day", "2 days", "7 days"], ExpiryOption.All.Select(o => o.Label));
+            Assert.Equal(["1 hour", "6 hours", "12 hours", "1 day", "2 days", "7 days"], ExpiryOption.All.Select(o => o.Label));
 
         [Theory]
         [InlineData(48, 48)]
         [InlineData(50, 48)]
         [InlineData(0.5, 1)]
+        [InlineData(5, 6)]
+        [InlineData(10, 12)]
         [InlineData(1000, 168)]
         public void ClosestExpiry(double hours, double expected) => Assert.Equal(expected, ExpiryOption.Closest(hours).Value.TotalHours);
     }

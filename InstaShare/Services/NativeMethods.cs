@@ -9,6 +9,9 @@ namespace InstaShare.Services
         public const uint MOD_CONTROL = 0x0002;
         public const uint MOD_NOREPEAT = 0x4000;
 
+        public const int SHCNE_ASSOCCHANGED = 0x08000000;
+        public const uint SHCNF_IDLIST = 0x0000;
+
         public const uint SHGFI_ICON = 0x000000100;
         public const uint SHGFI_LARGEICON = 0x000000000;
 
@@ -23,6 +26,9 @@ namespace InstaShare.Services
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)]
             public string szTypeName;
         }
+
+        [DllImport("shell32.dll")]
+        public static extern void SHChangeNotify(int wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);
 
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
         public static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);

@@ -50,7 +50,7 @@ namespace InstaShare.ViewModels
             ReloadHistory();
 
             _cleanupTimer = new DispatcherTimer { Interval = CleanupInterval };
-            _cleanupTimer.Tick += async (_, _) => await CleanUpExpired(userAsked: false);
+            _cleanupTimer.Tick += (_, _) => RemoveExpired();
             _clockTimer = new DispatcherTimer { Interval = ClockInterval };
             _noticeTimer = new DispatcherTimer { Interval = NoticeLifetime };
             _noticeTimer.Tick += (_, _) =>
@@ -101,9 +101,6 @@ namespace InstaShare.ViewModels
         [ObservableProperty]
         public partial string TrayStatus { get; set; } = Constants.AppName;
 
-        [ObservableProperty]
-        public partial bool IsCleaningUp { get; set; }
-
         public bool HasTransfers => Transfers.Count > 0;
         public bool HasPending => Transfers.Any(t => t.IsPending);
         public bool HasFinished => Transfers.Any(t => t.IsFinished);
@@ -122,7 +119,8 @@ namespace InstaShare.ViewModels
             _cleanupTimer.Start();
             _clockTimer.Start();
             ClipboardService.CleanUpTempFiles(TimeSpan.FromDays(1));
-            await CleanUpExpired(userAsked: false);
+            RemoveExpired();
+            await Task.CompletedTask;
         }
 
         public void Stop()
@@ -342,9 +340,6 @@ namespace InstaShare.ViewModels
         }
 
         [RelayCommand]
-        private Task CleanUpNow() => CleanUpExpired(userAsked: true);
-
-        [RelayCommand]
         private void Navigate(Page page) => SelectedPage = page;
 
         /// <summary>
@@ -358,27 +353,18 @@ namespace InstaShare.ViewModels
             UpdateTaskbar();
         }
 
-        private async Task CleanUpExpired(bool userAsked)
+        /// <summary>
+        /// The server deletes expired shares on its own; this just takes them off the History page.
+        /// </summary>
+        private void RemoveExpired()
         {
-            if (IsCleaningUp)
-                return;
-            IsCleaningUp = true;
             try
             {
-                var (deleted, failed) = await _history.DeleteExpired(DateTime.UtcNow, IsInUse);
-                if (failed > 0)
-                    ShowNotice(new NoticeViewModel(NoticeSeverity.Warning, $"{failed} expired share(s) couldn't be deleted", "They'll be tried again in a few minutes."));
-                else if (userAsked)
-                    ShowNotice(new NoticeViewModel(NoticeSeverity.Success, deleted == 0 ? "Nothing has expired" : $"Deleted {deleted} expired share(s)"));
+                _history.RemoveExpired(DateTime.UtcNow, IsInUse);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                if (userAsked)
-                    ShowNotice(new NoticeViewModel(NoticeSeverity.Error, "Cleanup failed", ex.Message));
-            }
-            finally
-            {
-                IsCleaningUp = false;
+                // Tried again on the next tick.
             }
         }
 
@@ -423,18 +409,18 @@ namespace InstaShare.ViewModels
                 IReadOnlyList<string> failedFiles;
                 if (item.RetryFailedOnly)
                 {
-                    failedFiles = await _fileManager.RetryFolderFiles(item.RemoteId!, item.LocalPath, item.FailedFiles, progress, ct);
+                    failedFiles = await _fileManager.RetryFolderFiles(item.RemoteId!, item.Token!, item.LocalPath, item.FailedFiles, progress, ct);
                 }
                 else if (item.IsFolder)
                 {
-                    var (folderId, link, failed) = await _fileManager.UploadFolderWithStructure(item.LocalPath, progress, ct);
+                    var (folderId, link, failed) = await _fileManager.UploadFolderWithStructure(item.LocalPath, item.Expiry.Value, progress, ct);
                     item.RemoteId = folderId;
                     item.Link = link;
                     failedFiles = failed;
                 }
                 else
                 {
-                    var (fileId, link) = await _fileManager.UploadFile(item.LocalPath, progress, ct);
+                    var (fileId, link) = await _fileManager.UploadFile(item.LocalPath, item.Expiry.Value, progress, ct);
                     item.RemoteId = fileId;
                     item.Link = link;
                     failedFiles = [];
@@ -468,9 +454,10 @@ namespace InstaShare.ViewModels
 
             if (!item.RetryFailedOnly && item.RemoteId != p.RemoteId)
             {
-                // The link exists before any bytes are sent; record it now so it expires even if the app closes mid-upload.
+                // The link exists before any bytes are sent; record it now so it shows in History even if the app closes mid-upload.
                 item.RemoteId = p.RemoteId;
                 item.Link = p.SharedLink;
+                item.Token = p.Token;
                 var now = DateTime.UtcNow;
                 TryChangeHistory(() => _history.Add(new UploadRecord
                 {
@@ -478,10 +465,11 @@ namespace InstaShare.ViewModels
                     FilePath = item.LocalPath,
                     ShareableLink = p.SharedLink,
                     UploadTimeUtc = now,
-                    ExpiresUtc = now + item.Expiry.Value,
+                    ExpiresUtc = p.ExpiresUtc ?? now + item.Expiry.Value,
                     SizeBytes = p.TotalBytes,
                     IsFolder = item.IsFolder,
                     Status = ShareStatus.Uploading,
+                    Token = p.Token,
                 }));
             }
 

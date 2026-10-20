@@ -17,13 +17,14 @@ namespace InstaShare.Tests
                 Directory.Delete(_dir, recursive: true);
         }
 
-        private static UploadRecord Record(string id, DateTime uploaded, DateTime? expires = null) => new()
+        private static UploadRecord Record(string id, DateTime uploaded, DateTime? expires = null, string? token = "t") => new()
         {
             FileId = id,
             FilePath = $@"C:\files\{id}",
             ShareableLink = $"https://example.test/{id}",
             UploadTimeUtc = uploaded,
             ExpiresUtc = expires,
+            Token = token,
         };
 
         [Fact]
@@ -49,36 +50,53 @@ namespace InstaShare.Tests
         }
 
         [Fact]
-        public async Task DeletesOnlyExpiredAndIdleShares()
+        public void RemovesOnlyExpiredAndIdleEntries()
         {
             var now = DateTime.UtcNow;
             var history = new ShareHistory(_files, HistoryPath);
-            history.Add(Record("old", now.AddDays(-3)));                        // legacy 2-day expiry, past
+            history.Add(Record("old", now.AddDays(-3), token: null));           // legacy 2-day expiry, past
             history.Add(Record("fresh", now.AddHours(-1), now.AddDays(6)));     // chose 7 days
             history.Add(Record("hour", now.AddHours(-2), now.AddHours(-1)));    // chose 1 hour, past
             history.Add(Record("busy", now.AddDays(-3), now.AddDays(-1)));      // expired but still uploading
 
-            var (deleted, failed) = await history.DeleteExpired(now, id => id == "busy");
+            var removed = history.RemoveExpired(now, id => id == "busy");
 
-            Assert.Equal(2, deleted);
-            Assert.Equal(0, failed);
-            Assert.Equal(["old", "hour"], _files.Deleted);
+            Assert.Equal(2, removed);
+            Assert.Empty(_files.Deleted); // The server deletes; the app only forgets
             Assert.Equal(["fresh", "busy"], history.GetAll().Select(r => r.FileId));
         }
 
         [Fact]
-        public async Task FailedDeleteStaysForNextTime()
+        public async Task DeleteSendsTheShareToken()
         {
-            var now = DateTime.UtcNow;
             var history = new ShareHistory(_files, HistoryPath);
-            history.Add(Record("broken", now.AddDays(-3)));
-            history.Add(Record("ok", now.AddDays(-3)));
+            history.Add(Record("a", DateTime.UtcNow, token: "secret-token"));
+
+            await history.Delete("a");
+
+            Assert.Equal([("a", "secret-token")], _files.DeletedWithToken);
+            Assert.Empty(history.GetAll());
+        }
+
+        [Fact]
+        public async Task LegacyShareCantBeDeletedEarly()
+        {
+            var history = new ShareHistory(_files, HistoryPath);
+            history.Add(Record("legacy", DateTime.UtcNow, token: null));
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => history.Delete("legacy"));
+            Assert.Single(history.GetAll());
+        }
+
+        [Fact]
+        public async Task FailedDeleteKeepsTheEntry()
+        {
+            var history = new ShareHistory(_files, HistoryPath);
+            history.Add(Record("broken", DateTime.UtcNow));
             _files.FailFor.Add("broken");
 
-            var (deleted, failed) = await history.DeleteExpired(now);
-
-            Assert.Equal((1, 1), (deleted, failed));
-            Assert.Equal("broken", Assert.Single(history.GetAll()).FileId);
+            await Assert.ThrowsAsync<IOException>(() => history.Delete("broken"));
+            Assert.Single(history.GetAll());
         }
 
         [Fact]
@@ -98,20 +116,21 @@ namespace InstaShare.Tests
 
         private sealed class FakeFileManager : IFileManager
         {
-            public List<string> Deleted { get; } = [];
+            public List<(string id, string token)> DeletedWithToken { get; } = [];
+            public IEnumerable<string> Deleted => DeletedWithToken.Select(d => d.id);
             public HashSet<string> FailFor { get; } = [];
 
-            public Task DeleteShare(string remoteId, CancellationToken cancellationToken = default)
+            public Task DeleteShare(string remoteId, string token, CancellationToken cancellationToken = default)
             {
                 if (FailFor.Contains(remoteId))
                     throw new IOException("network down");
-                Deleted.Add(remoteId);
+                DeletedWithToken.Add((remoteId, token));
                 return Task.CompletedTask;
             }
 
-            public Task<(string fileId, string sharedLink)> UploadFile(string filePath, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-            public Task<(string folderId, string sharedLink, IReadOnlyList<string> failedFiles)> UploadFolderWithStructure(string localRootPath, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-            public Task<IReadOnlyList<string>> RetryFolderFiles(string folderId, string localRootPath, IReadOnlyList<string> relativePaths, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            public Task<(string fileId, string sharedLink)> UploadFile(string filePath, TimeSpan expiry, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            public Task<(string folderId, string sharedLink, IReadOnlyList<string> failedFiles)> UploadFolderWithStructure(string localRootPath, TimeSpan expiry, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            public Task<IReadOnlyList<string>> RetryFolderFiles(string folderId, string token, string localRootPath, IReadOnlyList<string> relativePaths, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         }
     }
 }

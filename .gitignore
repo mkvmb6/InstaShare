@@ -366,3 +366,7 @@ FodyWeavers.xsd
 
 .idea
 
+
+# Cloudflare Worker
+/Api/.wrangler/
+/Api/.dev.vars

@@ -1,6 +1,4 @@
-﻿using Amazon.S3;
-using Amazon.S3.Model;
-using InstaShare.Models;
+﻿using InstaShare.Models;
 using InstaShare.Services;
 using Newtonsoft.Json;
 using System.Collections.Concurrent;
@@ -11,6 +9,10 @@ using System.Text;
 
 namespace InstaShare.FileManagers.Impl
 {
+    /// <summary>
+    /// Uploads to Cloudflare R2 through the InstaShare API. The API holds the storage keys and signs each upload;
+    /// the bytes go straight from here to R2.
+    /// </summary>
     public class CloudFlareR2FileManager : IFileManager
     {
         // Objects above this size go up in parts, so they can retry per part and exceed the 5 GB single PUT limit.
@@ -19,8 +21,10 @@ namespace InstaShare.FileManagers.Impl
         private const int MaxParts = 10_000;
         private const int PartConcurrency = 4;
         private const int FileConcurrency = 4;
-        private const int DeleteConcurrency = 8;
         private const int MaxAttempts = 4;
+        // Upload links are signed this many at a time, so a big folder costs a handful of API calls, not one per file.
+        private const int SignBatchSize = 100;
+        private const int SignConcurrency = 4;
         private const long MinBytesPerSecond = 50_000; // Assuming min speed around 50KBps
         private static readonly TimeSpan MinRequestTimeout = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan IndexFlushInterval = TimeSpan.FromSeconds(1);
@@ -31,41 +35,20 @@ namespace InstaShare.FileManagers.Impl
             Timeout = Timeout.InfiniteTimeSpan
         };
 
-        private readonly IAmazonS3 _s3;
-        public CloudFlareR2FileManager()
-        {
-            _s3 = R2ClientFactory.CreateR2Client();
-        }
+        private readonly ShareApi _api = new(Http, Constants.ApiBaseUrl);
 
-        public async Task DeleteShare(string remoteId, CancellationToken cancellationToken = default)
-        {
-            // A share is every object under its top-level folder: the files plus index.json.
-            var prefix = ShareKeys.GetSharePrefix(remoteId);
-            string? continuationToken = null;
-            do
-            {
-                var page = await _s3.ListObjectsV2Async(new ListObjectsV2Request
-                {
-                    BucketName = Constants.R2BucketName,
-                    Prefix = prefix,
-                    ContinuationToken = continuationToken
-                }, cancellationToken);
+        private delegate Task<(string url, HttpContent content, ProgressStream? stream)> RequestFactory(bool freshUrl);
 
-                var keys = page.S3Objects?.Select(o => o.Key).ToList() ?? [];
-                await Parallel.ForEachAsync(keys, new ParallelOptions { MaxDegreeOfParallelism = DeleteConcurrency, CancellationToken = cancellationToken },
-                    async (key, ct) => await _s3.DeleteObjectAsync(Constants.R2BucketName, key, ct));
+        public Task DeleteShare(string remoteId, string token, CancellationToken cancellationToken = default) =>
+            _api.DeleteShare(new ShareRef(ShareKeys.GetSharePrefix(remoteId), token), cancellationToken);
 
-                continuationToken = page.IsTruncated == true ? page.NextContinuationToken : null;
-            } while (continuationToken != null);
-        }
-
-        public async Task<(string fileId, string sharedLink)> UploadFile(string filePath, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
+        public async Task<(string fileId, string sharedLink)> UploadFile(string filePath, TimeSpan expiry, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
         {
             var fileName = Path.GetFileName(filePath);
-            var folderId = $"{fileName}-{Guid.NewGuid()}";
-            var fileId = $"{folderId}/{fileName}";
-            var sharedLink = ShareKeys.GetShareLink(folderId);
             var totalSize = new FileInfo(filePath).Length;
+            var (share, expiresUtc) = await _api.CreateShare(isFolder: false, fileName, expiry, cancellationToken);
+            var fileId = share.Prefix + fileName;
+            var sharedLink = ShareKeys.GetShareLink(share.Prefix.TrimEnd('/'));
 
             var entry = new FileIndex
             {
@@ -74,17 +57,18 @@ namespace InstaShare.FileManagers.Impl
                 size = totalSize,
                 status = UploadStatus.Uploading
             };
-            var index = new IndexPublisher([entry], (json, ct) => UploadIndexJson(json, folderId, ct));
+            var index = new IndexPublisher([entry], IndexWriter(share));
 
-            progress?.Report(new UploadProgress(fileId, sharedLink, "Generating link...", 0, null, 0, totalSize, null, LinkLive: false));
+            var report = new UploadProgress(fileId, sharedLink, "Uploading", 0, null, 0, totalSize, null, true, share.Token, expiresUtc);
+            progress?.Report(report with { Status = "Generating link...", LinkLive = false });
             await index.FlushAsync(cancellationToken);
-            progress?.Report(new UploadProgress(fileId, sharedLink, "Uploading", 0, null, 0, totalSize, null));
+            progress?.Report(report);
 
             var tracker = new TransferProgress(totalSize, (percent, speed, sent, eta) =>
-                progress?.Report(new UploadProgress(fileId, sharedLink, "Uploading", percent, speed, sent, totalSize, eta)));
+                progress?.Report(report with { Percent = percent, Speed = speed, BytesSent = sent, Eta = eta }));
             try
             {
-                await UploadObject(filePath, fileId, tracker, cancellationToken);
+                await UploadObject(share, filePath, PutFor(filePath, fileId, totalSize), presignedUrl: null, tracker, cancellationToken);
                 index.SetStatus(entry, UploadStatus.Uploaded);
             }
             catch
@@ -98,46 +82,60 @@ namespace InstaShare.FileManagers.Impl
             return (fileId, sharedLink);
         }
 
-        public async Task<(string folderId, string sharedLink, IReadOnlyList<string> failedFiles)> UploadFolderWithStructure(string localRootPath, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
+        public async Task<(string folderId, string sharedLink, IReadOnlyList<string> failedFiles)> UploadFolderWithStructure(string localRootPath, TimeSpan expiry, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
         {
             if (!Directory.Exists(localRootPath))
             {
                 throw new DirectoryNotFoundException($"Directory not found: {localRootPath}");
             }
-            var uniqueFolderId = Guid.NewGuid().ToString();
             var files = Directory.GetFiles(localRootPath, "*", SearchOption.AllDirectories);
-            var folderName = Path.GetFileName(localRootPath);
-            var baseFolder = $"{uniqueFolderId}/{folderName}";
+            // A drive root like "D:\" has no name of its own.
+            var folderName = Path.GetFileName(localRootPath.TrimEnd('\\', '/')) is { Length: > 0 } name ? name : "Folder";
+
+            var (share, expiresUtc) = await _api.CreateShare(isFolder: true, null, expiry, cancellationToken);
+            var baseFolder = share.Prefix + folderName;
             var sharedLink = ShareKeys.GetShareLink(baseFolder);
 
-            var entries = GetIndex(files, folderName, baseFolder, localRootPath);
-            var index = new IndexPublisher(entries, (json, ct) => UploadIndexJson(json, uniqueFolderId, ct));
+            var work = files.Select(file =>
+            {
+                var relativePath = Path.GetRelativePath(localRootPath, file).Replace("\\", "/");
+                var key = $"{baseFolder}/{relativePath}";
+                var size = new FileInfo(file).Length;
+                var entry = new FileIndex
+                {
+                    path = $"{folderName}/{relativePath}",
+                    size = size,
+                    url = ShareKeys.GetCdnUrl(key),
+                    status = UploadStatus.Uploading
+                };
+                return new FolderFile(file, relativePath, entry, PutFor(file, key, size));
+            }).ToList();
+            var index = new IndexPublisher([.. work.Select(w => w.Entry)], IndexWriter(share));
 
-            var totalSize = entries.Sum(e => e.size);
-            progress?.Report(new UploadProgress(baseFolder, sharedLink, "Generating link...", 0, null, 0, totalSize, null, LinkLive: false));
+            var report = new UploadProgress(baseFolder, sharedLink, $"0/{files.Length} files", 0, null, 0, work.Sum(w => w.Entry.size), null, true, share.Token, expiresUtc);
+            progress?.Report(report with { Status = "Generating link...", LinkLive = false });
             await index.FlushAsync(cancellationToken);
             index.StartPeriodicFlush(IndexFlushInterval);
-            progress?.Report(new UploadProgress(baseFolder, sharedLink, $"0/{files.Length} files", 0, null, 0, totalSize, null));
+            progress?.Report(report);
 
-            var failedFiles = await UploadFolderFiles(localRootPath, baseFolder, sharedLink, [.. files.Zip(entries)], totalSize, index, progress, cancellationToken);
+            var failedFiles = await UploadFolderFiles(share, work, index, report, progress, cancellationToken);
             await index.CompleteAsync();
             return (baseFolder, sharedLink, failedFiles);
         }
 
-        public async Task<IReadOnlyList<string>> RetryFolderFiles(string folderId, string localRootPath, IReadOnlyList<string> relativePaths, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<string>> RetryFolderFiles(string folderId, string token, string localRootPath, IReadOnlyList<string> relativePaths, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
         {
-            var uniqueFolderId = ShareKeys.GetSharePrefix(folderId).TrimEnd('/');
-            var folderName = folderId[(uniqueFolderId.Length + 1)..];
+            var share = new ShareRef(ShareKeys.GetSharePrefix(folderId), token);
+            var folderName = folderId[share.Prefix.Length..];
             var sharedLink = ShareKeys.GetShareLink(folderId);
 
             // The published index is the source of truth for every other file's status.
-            List<FileIndex> entries;
-            using (var response = await _s3.GetObjectAsync(Constants.R2BucketName, $"{uniqueFolderId}/index.json", cancellationToken))
-            using (var reader = new StreamReader(response.ResponseStream))
-                entries = JsonConvert.DeserializeObject<List<FileIndex>>(await reader.ReadToEndAsync(cancellationToken)) ?? [];
+            // The query string skips any copy the CDN still has cached.
+            var indexUrl = $"{ShareKeys.GetCdnUrl(share.Prefix + "index.json")}?v={DateTime.UtcNow.Ticks}";
+            var entries = JsonConvert.DeserializeObject<List<FileIndex>>(await Http.GetStringAsync(indexUrl, cancellationToken)) ?? [];
 
             var byPath = entries.ToDictionary(e => e.path);
-            var work = new List<(string file, FileIndex entry)>();
+            var work = new List<FolderFile>();
             foreach (var relativePath in relativePaths)
             {
                 if (!byPath.TryGetValue($"{folderName}/{relativePath}", out var entry))
@@ -146,47 +144,54 @@ namespace InstaShare.FileManagers.Impl
                 if (File.Exists(file))
                     entry.size = new FileInfo(file).Length;
                 entry.status = UploadStatus.Uploading;
-                work.Add((file, entry));
+                work.Add(new FolderFile(file, relativePath, entry, PutFor(file, $"{folderId}/{relativePath}", entry.size)));
             }
 
-            var index = new IndexPublisher(entries, (json, ct) => UploadIndexJson(json, uniqueFolderId, ct));
-            var totalSize = work.Sum(w => w.entry.size);
-            progress?.Report(new UploadProgress(folderId, sharedLink, "Preparing retry...", 0, null, 0, totalSize, null));
+            var index = new IndexPublisher(entries, IndexWriter(share));
+            var report = new UploadProgress(folderId, sharedLink, "Preparing retry...", 0, null, 0, work.Sum(w => w.Entry.size), null, true, token, null);
+            progress?.Report(report);
             await index.FlushAsync(cancellationToken);
             index.StartPeriodicFlush(IndexFlushInterval);
 
-            var stillFailed = await UploadFolderFiles(localRootPath, folderId, sharedLink, work, totalSize, index, progress, cancellationToken);
+            var stillFailed = await UploadFolderFiles(share, work, index, report, progress, cancellationToken);
             await index.CompleteAsync();
             return stillFailed;
         }
 
+        private sealed record FolderFile(string LocalPath, string RelativePath, FileIndex Entry, PutRequest Put);
+
         /// <summary>
         /// Uploads files of a folder share in parallel. A file that fails is marked failed and returned, the rest carry on.
         /// </summary>
-        private async Task<IReadOnlyList<string>> UploadFolderFiles(string localRootPath, string baseFolder, string sharedLink, IReadOnlyList<(string file, FileIndex entry)> work, long totalSize, IndexPublisher index, IProgress<UploadProgress>? progress, CancellationToken cancellationToken)
+        private async Task<IReadOnlyList<string>> UploadFolderFiles(ShareRef share, IReadOnlyList<FolderFile> work, IndexPublisher index, UploadProgress report, IProgress<UploadProgress>? progress, CancellationToken cancellationToken)
         {
             var failedFiles = new ConcurrentBag<string>();
             var completedFiles = 0;
-            var tracker = new TransferProgress(totalSize, (percent, speed, sent, eta) =>
-                progress?.Report(new UploadProgress(baseFolder, sharedLink,
-                    $"{Volatile.Read(ref completedFiles)}/{work.Count} files", percent, speed, sent, totalSize, eta)));
+            var tracker = new TransferProgress(report.TotalBytes, (percent, speed, sent, eta) =>
+                progress?.Report(report with
+                {
+                    Status = $"{Volatile.Read(ref completedFiles)}/{work.Count} files",
+                    Percent = percent,
+                    Speed = speed,
+                    BytesSent = sent,
+                    Eta = eta,
+                }));
 
             try
             {
+                var urls = await SignSmallObjects(share, work.Select(w => w.Put), cancellationToken);
                 await Parallel.ForEachAsync(work, new ParallelOptions { MaxDegreeOfParallelism = FileConcurrency, CancellationToken = cancellationToken }, async (item, ct) =>
                 {
-                    var (file, entry) = item;
-                    var relativePath = Path.GetRelativePath(localRootPath, file).Replace("\\", "/");
                     try
                     {
-                        await UploadObject(file, $"{baseFolder}/{relativePath}", tracker, ct);
-                        index.SetStatus(entry, UploadStatus.Uploaded);
+                        await UploadObject(share, item.LocalPath, item.Put, urls.GetValueOrDefault(item.Put.Key), tracker, ct);
+                        index.SetStatus(item.Entry, UploadStatus.Uploaded);
                     }
                     catch (Exception) when (!ct.IsCancellationRequested)
                     {
-                        // One bad file (locked, deleted, network gave up) shouldn't sink the whole share.
-                        index.SetStatus(entry, UploadStatus.Failed);
-                        failedFiles.Add(relativePath);
+                        // One bad file (locked, deleted, too big, network gave up) shouldn't sink the whole share.
+                        index.SetStatus(item.Entry, UploadStatus.Failed);
+                        failedFiles.Add(item.RelativePath);
                     }
                     Interlocked.Increment(ref completedFiles);
                     tracker.ReportNow();
@@ -201,22 +206,29 @@ namespace InstaShare.FileManagers.Impl
             return [.. failedFiles];
         }
 
-        private static List<FileIndex> GetIndex(string[] files, string folderName, string baseFolder, string localRootPath)
+        /// <summary>
+        /// Signs upload links for every file small enough for a single PUT, in batches.
+        /// </summary>
+        private async Task<IReadOnlyDictionary<string, string>> SignSmallObjects(ShareRef share, IEnumerable<PutRequest> puts, CancellationToken cancellationToken)
         {
-            var index = new List<FileIndex>(files.Length);
-            foreach (var file in files)
+            var urls = new ConcurrentDictionary<string, string>();
+            var batches = puts.Where(p => p.Size <= MultipartThreshold).Chunk(SignBatchSize);
+            await Parallel.ForEachAsync(batches, new ParallelOptions { MaxDegreeOfParallelism = SignConcurrency, CancellationToken = cancellationToken }, async (batch, ct) =>
             {
-                var relativePath = Path.GetRelativePath(localRootPath, file).Replace("\\", "/");
-                var fileId = $"{baseFolder}/{relativePath}";
-                index.Add(new FileIndex
-                {
-                    path = $"{folderName}/{relativePath}",
-                    size = new FileInfo(file).Length,
-                    url = ShareKeys.GetCdnUrl(fileId),
-                    status = UploadStatus.Uploading
-                });
-            }
-            return index;
+                var signed = await _api.SignPuts(share, batch, ct);
+                for (var i = 0; i < batch.Length; i++)
+                    urls[batch[i].Key] = signed[i];
+            });
+            return urls;
+        }
+
+        private static PutRequest PutFor(string filePath, string key, long size)
+        {
+            var fileName = Path.GetFileName(filePath);
+            var contentType = ContentTypes.FromFileName(fileName);
+            // PDFs stay inline so the viewer's iframe can render them; everything else downloads under its real name.
+            var contentDisposition = contentType == "application/pdf" ? null : ContentTypes.AttachmentDisposition(fileName);
+            return new PutRequest(key, size, contentType, contentDisposition);
         }
 
         /// <summary>
@@ -234,89 +246,82 @@ namespace InstaShare.FileManagers.Impl
             }
         }
 
-        private async Task UploadIndexJson(string indexJson, string baseFolder, CancellationToken cancellationToken)
+        /// <summary>
+        /// Writes index.json through one reusable signed link, fetching a new one if it expires during a long upload.
+        /// IndexPublisher serializes writes, so the cached link needs no lock.
+        /// </summary>
+        private Func<string, CancellationToken, Task> IndexWriter(ShareRef share)
         {
-            var indexKey = $"{baseFolder}/index.json";
-            var body = Encoding.UTF8.GetBytes(indexJson);
-            using var response = await SendWithRetry(() =>
+            string? url = null;
+            return async (json, cancellationToken) =>
             {
-                var content = new ByteArrayContent(body);
-                AddObjectHeaders(content, "application/json", null);
-                return (_s3.GetPreSignedUrl(indexKey, "application/json"), content, null);
-            }, body.Length, cancellationToken);
+                var body = Encoding.UTF8.GetBytes(json);
+                using var response = await SendWithRetry(async freshUrl =>
+                {
+                    if (freshUrl || url == null)
+                        url = await _api.SignIndex(share, cancellationToken);
+                    var content = new ByteArrayContent(body);
+                    content.Headers.TryAddWithoutValidation("Content-Type", "application/json");
+                    return (url, content, null);
+                }, body.Length, cancellationToken);
+            };
         }
 
-        private async Task UploadObject(string filePath, string key, TransferProgress tracker, CancellationToken cancellationToken)
+        private async Task UploadObject(ShareRef share, string filePath, PutRequest put, string? presignedUrl, TransferProgress tracker, CancellationToken cancellationToken)
         {
-            var fileName = Path.GetFileName(filePath);
-            var contentType = ContentTypes.FromFileName(fileName);
-            // PDFs stay inline so the viewer's iframe can render them; everything else downloads under its real name.
-            var contentDisposition = contentType == "application/pdf" ? null : ContentTypes.AttachmentDisposition(fileName);
-            var size = new FileInfo(filePath).Length;
-
-            if (size > MultipartThreshold)
+            if (put.Size > MultipartThreshold)
             {
-                await UploadMultipart(filePath, key, size, contentType, contentDisposition, tracker, cancellationToken);
+                await UploadMultipart(share, filePath, put, tracker, cancellationToken);
                 return;
             }
 
-            using var response = await SendWithRetry(() =>
+            using var response = await SendWithRetry(async freshUrl =>
             {
-                var stream = new ProgressStream(OpenAt(filePath, 0), size, tracker);
+                if (freshUrl || presignedUrl == null)
+                    presignedUrl = (await _api.SignPuts(share, [put], cancellationToken))[0];
+                var stream = new ProgressStream(OpenAt(filePath, 0), put.Size, tracker);
                 var content = new StreamContent(stream);
-                content.Headers.ContentLength = size; // presigned PUTs don't accept chunked bodies
-                AddObjectHeaders(content, contentType, contentDisposition);
-                return (_s3.GetPreSignedUrl(key, contentType, contentDisposition), content, stream);
-            }, size, cancellationToken);
+                // The link only accepts the size it was signed for, so send exactly that, not chunked.
+                content.Headers.ContentLength = put.Size;
+                AddObjectHeaders(content, put);
+                return (presignedUrl, content, stream);
+            }, put.Size, cancellationToken);
         }
 
-        private async Task UploadMultipart(string filePath, string key, long size, string contentType, string? contentDisposition, TransferProgress tracker, CancellationToken cancellationToken)
+        private async Task UploadMultipart(ShareRef share, string filePath, PutRequest put, TransferProgress tracker, CancellationToken cancellationToken)
         {
+            var size = put.Size;
             var partSize = Math.Max(MinPartSize, (size + MaxParts - 1) / MaxParts);
             var partCount = (int)((size + partSize - 1) / partSize);
 
-            var initiate = new InitiateMultipartUploadRequest
-            {
-                BucketName = Constants.R2BucketName,
-                Key = key,
-                ContentType = contentType,
-                CannedACL = S3CannedACL.PublicRead,
-            };
-            if (contentDisposition != null)
-                initiate.Headers.ContentDisposition = contentDisposition;
-            var uploadId = (await _s3.InitiateMultipartUploadAsync(initiate, cancellationToken)).UploadId;
-
+            var uploadId = await _api.CreateMultipart(share, put, cancellationToken);
+            var partUrls = new PartUrls(_api, share, put.Key, uploadId, size, partSize);
             try
             {
-                var etags = new PartETag[partCount];
+                var etags = new string[partCount];
                 await Parallel.ForEachAsync(Enumerable.Range(1, partCount), new ParallelOptions { MaxDegreeOfParallelism = PartConcurrency, CancellationToken = cancellationToken }, async (partNumber, ct) =>
                 {
                     var offset = (partNumber - 1) * partSize;
                     var length = Math.Min(partSize, size - offset);
-                    using var response = await SendWithRetry(() =>
+                    using var response = await SendWithRetry(async freshUrl =>
                     {
+                        var url = await partUrls.Get(partNumber, freshUrl, ct);
                         var stream = new ProgressStream(OpenAt(filePath, offset), length, tracker);
                         var content = new StreamContent(stream);
                         content.Headers.ContentLength = length;
-                        return (_s3.GetPreSignedPartUrl(key, uploadId, partNumber), content, stream);
+                        return (url, content, stream);
                     }, length, ct);
-                    etags[partNumber - 1] = new PartETag(partNumber, response.Headers.ETag?.Tag
-                        ?? throw new InvalidOperationException($"No ETag returned for part {partNumber}."));
+                    etags[partNumber - 1] = response.Headers.ETag?.Tag
+                        ?? throw new InvalidOperationException($"No ETag returned for part {partNumber}.");
                 });
 
-                await _s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
-                {
-                    BucketName = Constants.R2BucketName,
-                    Key = key,
-                    UploadId = uploadId,
-                    PartETags = [.. etags],
-                }, cancellationToken);
+                await _api.CompleteMultipart(share, put.Key, uploadId, [.. etags.Select((etag, i) => (i + 1, etag))], cancellationToken);
             }
             catch
             {
                 try
                 {
-                    await _s3.AbortMultipartUploadAsync(Constants.R2BucketName, key, uploadId, CancellationToken.None);
+                    await _api.AbortMultipart(share, put.Key, uploadId, CancellationToken.None);
                 }
                 catch (Exception)
                 {
@@ -327,14 +332,52 @@ namespace InstaShare.FileManagers.Impl
         }
 
         /// <summary>
+        /// Part upload links, signed a batch at a time as the upload reaches them.
+        /// </summary>
+        private sealed class PartUrls(ShareApi api, ShareRef share, string key, string uploadId, long size, long partSize)
+        {
+            private readonly ConcurrentDictionary<int, string> _urls = new();
+            private readonly SemaphoreSlim _lock = new(1, 1);
+            private readonly int _partCount = (int)((size + partSize - 1) / partSize);
+
+            public async Task<string> Get(int partNumber, bool fresh, CancellationToken cancellationToken)
+            {
+                if (!fresh && _urls.TryGetValue(partNumber, out var url))
+                    return url;
+
+                await _lock.WaitAsync(cancellationToken);
+                try
+                {
+                    if (!fresh && _urls.TryGetValue(partNumber, out url))
+                        return url;
+                    // This part plus the next ones not signed yet; parts are uploaded roughly in order.
+                    var batch = Enumerable.Range(partNumber, Math.Min(SignBatchSize, _partCount - partNumber + 1))
+                        .Where(n => n == partNumber || !_urls.ContainsKey(n))
+                        .Select(n => (n, Math.Min(partSize, size - (n - 1) * partSize)))
+                        .ToList();
+                    var signed = await api.SignParts(share, key, uploadId, batch, cancellationToken);
+                    for (var i = 0; i < batch.Count; i++)
+                        _urls[batch[i].n] = signed[i];
+                    return _urls[partNumber];
+                }
+                finally
+                {
+                    _lock.Release();
+                }
+            }
+        }
+
+        /// <summary>
         /// Sends a PUT, building a fresh request per attempt and retrying transient failures with backoff.
         /// </summary>
-        private static async Task<HttpResponseMessage> SendWithRetry(Func<(string url, HttpContent content, ProgressStream? stream)> createRequest, long size, CancellationToken cancellationToken)
+        private static async Task<HttpResponseMessage> SendWithRetry(RequestFactory createRequest, long size, CancellationToken cancellationToken)
         {
             var timeout = TimeSpan.FromSeconds(Math.Max(MinRequestTimeout.TotalSeconds, size / MinBytesPerSecond));
+            var freshUrl = false;
             for (var attempt = 1; ; attempt++)
             {
-                var (url, content, stream) = createRequest();
+                var (url, content, stream) = await createRequest(freshUrl);
+                var retryNow = false;
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeoutCts.CancelAfter(timeout);
                 try
@@ -348,8 +391,15 @@ namespace InstaShare.FileManagers.Impl
                         $"Upload failed with {(int)response.StatusCode} {response.ReasonPhrase}: {await ReadErrorBody(response)}",
                         null, response.StatusCode);
                     response.Dispose();
-                    if (!IsTransient(response.StatusCode) || attempt == MaxAttempts)
+                    if (response.StatusCode == HttpStatusCode.Forbidden && !freshUrl && attempt < MaxAttempts)
+                    {
+                        // Upload links expire after a few hours, and a long queue can outlive one. Get a new link once.
+                        freshUrl = retryNow = true;
+                    }
+                    else if (!IsTransient(response.StatusCode) || attempt == MaxAttempts)
+                    {
                         throw error;
+                    }
                 }
                 catch (Exception ex) when (attempt < MaxAttempts && !cancellationToken.IsCancellationRequested
                     && ex is HttpRequestException { StatusCode: null } or OperationCanceledException or IOException)
@@ -366,7 +416,8 @@ namespace InstaShare.FileManagers.Impl
                 }
 
                 stream?.RollbackProgress();
-                await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)), cancellationToken);
+                if (!retryNow)
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)), cancellationToken);
             }
         }
 
@@ -386,13 +437,12 @@ namespace InstaShare.FileManagers.Impl
             }
         }
 
-        private static void AddObjectHeaders(HttpContent content, string contentType, string? contentDisposition)
+        private static void AddObjectHeaders(HttpContent content, PutRequest put)
         {
             // Values are part of the presigned signature, so send them exactly as signed.
-            content.Headers.TryAddWithoutValidation("Content-Type", contentType);
-            content.Headers.TryAddWithoutValidation("x-amz-acl", "public-read");
-            if (contentDisposition != null)
-                content.Headers.TryAddWithoutValidation("Content-Disposition", contentDisposition);
+            content.Headers.TryAddWithoutValidation("Content-Type", put.ContentType);
+            if (put.ContentDisposition != null)
+                content.Headers.TryAddWithoutValidation("Content-Disposition", put.ContentDisposition);
         }
 
         private static FileStream OpenAt(string filePath, long offset)

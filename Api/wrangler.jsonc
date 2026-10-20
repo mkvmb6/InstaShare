@@ -1,0 +1,29 @@
+// InstaShare API Worker.
+//
+// First deploy:
+//   npm install
+//   npx wrangler login
+//   npx wrangler secret put R2_ACCOUNT_ID         # Cloudflare account ID
+//   npx wrangler secret put R2_ACCESS_KEY_ID      # R2 API token: Object Read & Write, "instashare" bucket only
+//   npx wrangler secret put R2_SECRET_ACCESS_KEY
+//   npx wrangler secret put TOKEN_SECRET          # Any long random string. Changing it invalidates every share token.
+//   npm run deploy
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "instashare-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "routes": [{ "pattern": "api.instashare.mohitkumarverma.com", "custom_domain": true }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "instashare" }],
+  "vars": {
+    "BUCKET_NAME": "instashare",
+    // 10 GB
+    "MAX_OBJECT_BYTES": "10737418240"
+  },
+  // Deletes expired shares every hour, even if their owner never opens the app again.
+  "triggers": { "crons": ["17 * * * *"] },
+  "observability": { "enabled": true }
+  // Optional: limit share creation to 30 per minute per IP. Uncomment if your plan supports the rate limiting binding.
+  // "ratelimits": [{ "name": "CREATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }]
+}

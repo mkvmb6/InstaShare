@@ -5,7 +5,9 @@ namespace InstaShare.ViewModels
     internal sealed record ExpiryOption(TimeSpan Value)
     {
         public static IReadOnlyList<ExpiryOption> All { get; } =
-            [new(TimeSpan.FromHours(1)), new(TimeSpan.FromDays(1)), new(TimeSpan.FromDays(2)), new(TimeSpan.FromDays(7))];
+            // Must match ALLOWED_EXPIRY_HOURS in Api/src/shares.ts; the server rejects anything else.
+            [new(TimeSpan.FromHours(1)), new(TimeSpan.FromHours(6)), new(TimeSpan.FromHours(12)),
+             new(TimeSpan.FromDays(1)), new(TimeSpan.FromDays(2)), new(TimeSpan.FromDays(7))];
 
         public string Label => Format.Expiry(Value);
 
