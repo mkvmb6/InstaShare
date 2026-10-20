@@ -86,37 +86,48 @@ namespace InstaShare.FileManagers.Impl
             return (fileId, sharedLink);
         }
 
-        public async Task<(string folderId, string sharedLink, IReadOnlyList<string> failedFiles)> UploadFolderWithStructure(string localRootPath, TimeSpan expiry, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
+        public Task<(string folderId, string sharedLink, IReadOnlyList<string> failedFiles)> UploadFolderWithStructure(string localRootPath, TimeSpan expiry, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
         {
             if (!Directory.Exists(localRootPath))
             {
                 throw new DirectoryNotFoundException($"Directory not found: {localRootPath}");
             }
-            var files = Directory.GetFiles(localRootPath, "*", SearchOption.AllDirectories);
             // A drive root like "D:\" has no name of its own.
             var folderName = Path.GetFileName(localRootPath.TrimEnd('\\', '/')) is { Length: > 0 } name ? name : "Folder";
+            var files = Directory.GetFiles(localRootPath, "*", SearchOption.AllDirectories)
+                .Select(file => (file, Path.GetRelativePath(localRootPath, file).Replace("\\", "/")))
+                .ToList();
+            return UploadAsFolderShare(folderName, files, expiry, progress, cancellationToken);
+        }
 
+        public Task<(string folderId, string sharedLink, IReadOnlyList<string> failedFiles)> UploadItems(IReadOnlyList<string> paths, string shareName, TimeSpan expiry, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default) =>
+            UploadAsFolderShare(SafeFolderName(shareName), ShareLayout.Arrange(paths), expiry, progress, cancellationToken);
+
+        /// <summary>
+        /// Uploads files as one folder share named <paramref name="folderName"/>, each at its relative path inside it.
+        /// </summary>
+        private async Task<(string folderId, string sharedLink, IReadOnlyList<string> failedFiles)> UploadAsFolderShare(string folderName, IReadOnlyList<(string localPath, string relativePath)> files, TimeSpan expiry, IProgress<UploadProgress>? progress, CancellationToken cancellationToken)
+        {
             var (share, expiresUtc) = await _api.CreateShare(isFolder: true, null, expiry, cancellationToken);
             var baseFolder = share.Prefix + folderName;
             var sharedLink = ShareKeys.GetShareLink(baseFolder);
 
-            var work = files.Select(file =>
+            var work = files.Select(f =>
             {
-                var relativePath = Path.GetRelativePath(localRootPath, file).Replace("\\", "/");
-                var key = $"{baseFolder}/{relativePath}";
-                var size = new FileInfo(file).Length;
+                var key = $"{baseFolder}/{f.relativePath}";
+                var size = new FileInfo(f.localPath).Length;
                 var entry = new FileIndex
                 {
-                    path = $"{folderName}/{relativePath}",
+                    path = $"{folderName}/{f.relativePath}",
                     size = size,
                     url = ShareKeys.GetCdnUrl(key),
                     status = UploadStatus.Uploading
                 };
-                return new FolderFile(file, relativePath, entry, PutFor(file, key, size));
+                return new FolderFile(f.localPath, f.relativePath, entry, PutFor(f.localPath, key, size));
             }).ToList();
             var index = new IndexPublisher(new ShareIndexDocument { name = folderName, kind = "folder", expiresUtc = expiresUtc, files = [.. work.Select(w => w.Entry)] }, IndexWriter(share));
 
-            var report = new UploadProgress(baseFolder, sharedLink, $"0/{files.Length} files", 0, null, 0, work.Sum(w => w.Entry.size), null, true, share.Token, expiresUtc);
+            var report = new UploadProgress(baseFolder, sharedLink, $"0/{work.Count} files", 0, null, 0, work.Sum(w => w.Entry.size), null, true, share.Token, expiresUtc);
             progress?.Report(report with { Status = "Generating link...", LinkLive = false });
             await index.FlushAsync(cancellationToken);
             index.StartPeriodicFlush(IndexFlushInterval);
@@ -129,7 +140,16 @@ namespace InstaShare.FileManagers.Impl
             return (baseFolder, sharedLink, failedFiles);
         }
 
-        public async Task<IReadOnlyList<string>> RetryFolderFiles(string folderId, string token, string localRootPath, IReadOnlyList<string> relativePaths, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
+        /// <summary>
+        /// A share's top-level folder name: no slashes or characters that would break keys, and never empty.
+        /// </summary>
+        private static string SafeFolderName(string name)
+        {
+            var cleaned = new string(name.Select(c => c is '/' or '\\' || char.IsControl(c) ? ' ' : c).ToArray()).Trim().Trim('.');
+            return cleaned.Length == 0 ? "Shared files" : cleaned.Length > 120 ? cleaned[..120].TrimEnd() : cleaned;
+        }
+
+        public async Task<IReadOnlyList<string>> RetryFolderFiles(string folderId, string token, IReadOnlyDictionary<string, string> localPaths, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default)
         {
             var share = new ShareRef(ShareKeys.GetSharePrefix(folderId), token);
             var folderName = folderId[share.Prefix.Length..];
@@ -143,11 +163,10 @@ namespace InstaShare.FileManagers.Impl
 
             var byPath = entries.ToDictionary(e => e.path);
             var work = new List<FolderFile>();
-            foreach (var relativePath in relativePaths)
+            foreach (var (relativePath, file) in localPaths)
             {
                 if (!byPath.TryGetValue($"{folderName}/{relativePath}", out var entry))
                     continue;
-                var file = Path.Combine(localRootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
                 if (File.Exists(file))
                     entry.size = new FileInfo(file).Length;
                 entry.status = UploadStatus.Uploading;

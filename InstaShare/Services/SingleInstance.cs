@@ -41,7 +41,9 @@ namespace InstaShare.Services
             {
                 using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out, PipeOptions.CurrentUserOnly);
                 // The other instance may have only just started; Connect waits for its pipe to appear.
-                client.Connect(TimeSpan.FromSeconds(5));
+                // Generous, because a selection of many files starts that many copies at once, and a copy that
+                // gives up starts its own upload instead of joining the shared one.
+                client.Connect(TimeSpan.FromSeconds(20));
                 using var writer = new StreamWriter(client);
                 writer.Write(JsonConvert.SerializeObject(args));
                 return true;

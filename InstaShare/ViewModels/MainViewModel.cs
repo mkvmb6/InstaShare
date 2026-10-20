@@ -134,10 +134,11 @@ namespace InstaShare.ViewModels
         /// <summary>
         /// Queues files and folders from any source: drop, browse, paste, command line or a second launch.
         /// </summary>
+        /// <remarks>Several paths at once (an Explorer selection, Send to, a drop, a multi-file pick) become one share with one link.</remarks>
         public void AddPaths(IEnumerable<string> paths)
         {
             var missing = new List<string>();
-            var added = 0;
+            var valid = new List<string>();
             foreach (var path in paths.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 if (!File.Exists(path) && !Directory.Exists(path))
@@ -146,25 +147,28 @@ namespace InstaShare.ViewModels
                     continue;
                 }
                 // Dropping the same thing twice before it starts is almost always a mistake.
-                if (Transfers.Any(t => t.State is TransferState.Pending or TransferState.Queued && string.Equals(t.LocalPath, path, StringComparison.OrdinalIgnoreCase)))
+                if (Transfers.Any(t => t.State is TransferState.Pending or TransferState.Queued && t.LocalPaths.Contains(path, StringComparer.OrdinalIgnoreCase)))
                     continue;
+                valid.Add(path);
+            }
 
-                TransferItemViewModel item;
+            var added = 0;
+            if (valid.Count > 0)
+            {
                 try
                 {
-                    item = new TransferItemViewModel(path, SelectedExpiry);
+                    var item = new TransferItemViewModel(valid, SelectedExpiry);
+                    item.State = Settings.ReviewBeforeSharing ? TransferState.Pending : TransferState.Queued;
+                    item.StatusText = item.IsPending ? "Ready to share" : "Waiting";
+                    item.PropertyChanged += (_, _) => RaiseQueueChanged();
+                    Transfers.Insert(0, item);
+                    _ = item.LoadFolderSizeAsync();
+                    added = 1;
                 }
                 catch (Exception ex)
                 {
-                    ShowNotice(new NoticeViewModel(NoticeSeverity.Error, $"Couldn't read {Path.GetFileName(path)}", ex.Message));
-                    continue;
+                    ShowNotice(new NoticeViewModel(NoticeSeverity.Error, $"Couldn't read {Path.GetFileName(valid[0])}", ex.Message));
                 }
-                item.State = Settings.ReviewBeforeSharing ? TransferState.Pending : TransferState.Queued;
-                item.StatusText = item.IsPending ? "Ready to share" : "Waiting";
-                item.PropertyChanged += (_, _) => RaiseQueueChanged();
-                Transfers.Insert(0, item);
-                _ = item.LoadFolderSizeAsync();
-                added++;
             }
 
             if (missing.Count > 0)
@@ -409,7 +413,14 @@ namespace InstaShare.ViewModels
                 IReadOnlyList<string> failedFiles;
                 if (item.RetryFailedOnly)
                 {
-                    failedFiles = await _fileManager.RetryFolderFiles(item.RemoteId!, item.Token!, item.LocalPath, item.FailedFiles, progress, ct);
+                    failedFiles = await _fileManager.RetryFolderFiles(item.RemoteId!, item.Token!, item.MapFailedFiles(), progress, ct);
+                }
+                else if (item.IsGroup)
+                {
+                    var (folderId, link, failed) = await _fileManager.UploadItems(item.LocalPaths, item.Name, item.Expiry.Value, progress, ct);
+                    item.RemoteId = folderId;
+                    item.Link = link;
+                    failedFiles = failed;
                 }
                 else if (item.IsFolder)
                 {
@@ -463,6 +474,7 @@ namespace InstaShare.ViewModels
                 {
                     FileId = p.RemoteId,
                     FilePath = item.LocalPath,
+                    Name = item.IsGroup ? item.Name : null,
                     ShareableLink = p.SharedLink,
                     UploadTimeUtc = now,
                     ExpiresUtc = p.ExpiresUtc ?? now + item.Expiry.Value,

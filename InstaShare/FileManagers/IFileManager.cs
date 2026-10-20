@@ -28,14 +28,22 @@ namespace InstaShare.Services
         Task<(string folderId, string sharedLink, IReadOnlyList<string> failedFiles)> UploadFolderWithStructure(string localRootPath, TimeSpan expiry, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Uploads several files and folders as one share, so they get a single link.
+        /// </summary>
+        /// <remarks>Files sit at the top of the share; each folder keeps its name and structure inside it.
+        /// Works like <see cref="UploadFolderWithStructure"/> otherwise, including its <c>failedFiles</c>.</remarks>
+        /// <param name="paths">Files and folders, usually what was selected in Explorer.</param>
+        /// <param name="shareName">What the share is called in the viewer, e.g. the folder the items were in.</param>
+        Task<(string folderId, string sharedLink, IReadOnlyList<string> failedFiles)> UploadItems(IReadOnlyList<string> paths, string shareName, TimeSpan expiry, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Uploads some files of an existing folder share again, typically the ones that failed.
         /// </summary>
-        /// <param name="folderId">The folder ID returned by <see cref="UploadFolderWithStructure"/>.</param>
+        /// <param name="folderId">The folder ID returned by <see cref="UploadFolderWithStructure"/> or <see cref="UploadItems"/>.</param>
         /// <param name="token">The share's token, from the upload's progress reports.</param>
-        /// <param name="localRootPath">The local folder that was shared.</param>
-        /// <param name="relativePaths">Paths relative to <paramref name="localRootPath"/>, with forward slashes.</param>
-        /// <returns>The paths that failed again.</returns>
-        Task<IReadOnlyList<string>> RetryFolderFiles(string folderId, string token, string localRootPath, IReadOnlyList<string> relativePaths, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default);
+        /// <param name="localPaths">For each file to retry: its path inside the share (forward slashes) and where it is on this PC.</param>
+        /// <returns>The paths inside the share that failed again.</returns>
+        Task<IReadOnlyList<string>> RetryFolderFiles(string folderId, string token, IReadOnlyDictionary<string, string> localPaths, IProgress<UploadProgress>? progress = null, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Deletes a share and everything in it, including its index.

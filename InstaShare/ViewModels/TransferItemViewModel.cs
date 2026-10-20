@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using InstaShare.FileManagers.Impl;
 using InstaShare.Services;
 using System.IO;
 using System.Windows.Media;
@@ -17,25 +18,45 @@ namespace InstaShare.ViewModels
     }
 
     /// <summary>
-    /// One file or folder in the upload queue.
+    /// One share in the upload queue: a file, a folder, or several items selected together.
     /// </summary>
     internal partial class TransferItemViewModel : ObservableObject, ILinkItem
     {
-        public TransferItemViewModel(string localPath, ExpiryOption expiry)
+        public TransferItemViewModel(string localPath, ExpiryOption expiry) : this([localPath], expiry)
         {
-            LocalPath = localPath;
-            IsFolder = Directory.Exists(localPath);
-            Name = Path.GetFileName(localPath.TrimEnd('\\', '/')) is { Length: > 0 } name ? name : localPath;
-            Expiry = expiry;
-            Icon = ShellIcons.Get(localPath);
-            StatusText = "Waiting";
-            if (!IsFolder)
-                TotalBytes = new FileInfo(localPath).Length;
         }
 
+        /// <param name="localPaths">Two or more become one share, named after the folder they were in.</param>
+        public TransferItemViewModel(IReadOnlyList<string> localPaths, ExpiryOption expiry)
+        {
+            LocalPaths = localPaths;
+            LocalPath = localPaths[0];
+            IsGroup = localPaths.Count > 1;
+            IsFolder = IsGroup || Directory.Exists(LocalPath);
+            Name = IsGroup ? ShareLayout.GroupName(localPaths) : Path.GetFileName(LocalPath.TrimEnd('\\', '/')) is { Length: > 0 } name ? name : LocalPath;
+            Expiry = expiry;
+            Icon = ShellIcons.Get(IsGroup ? Path.GetDirectoryName(LocalPath) ?? LocalPath : LocalPath);
+            StatusText = "Waiting";
+            if (!IsFolder)
+                TotalBytes = new FileInfo(LocalPath).Length;
+        }
+
+        /// <summary>
+        /// The first item; for a group, the others are in <see cref="LocalPaths"/>.
+        /// </summary>
         public string LocalPath { get; }
+        public IReadOnlyList<string> LocalPaths { get; }
+        public bool IsGroup { get; }
         public string Name { get; }
+        /// <summary>
+        /// True for folders and groups, which both upload as folder shares.
+        /// </summary>
         public bool IsFolder { get; }
+
+        /// <summary>
+        /// "Folder", "3 items" or "2 files": a hint before the size is known.
+        /// </summary>
+        public string KindText => IsGroup ? $"{LocalPaths.Count} items" : "Folder";
         public ImageSource? Icon { get; }
         public ExpiryOption Expiry { get; set; }
 
@@ -89,7 +110,9 @@ namespace InstaShare.ViewModels
         [NotifyPropertyChangedFor(nameof(CanCancel))]
         public partial bool IsCancelling { get; set; }
 
-        public string SizeText => TotalBytes is { } bytes ? Format.Bytes(bytes) : IsFolder ? "Folder" : "";
+        public string SizeText => TotalBytes is { } bytes
+            ? IsGroup ? $"{LocalPaths.Count} items · {Format.Bytes(bytes)}" : Format.Bytes(bytes)
+            : IsFolder ? KindText : "";
         public bool IsPending => State == TransferState.Pending;
         public bool IsUploading => State == TransferState.Uploading;
         public bool ShowProgress => State is TransferState.Uploading or TransferState.Queued;
@@ -128,6 +151,13 @@ namespace InstaShare.ViewModels
         }
 
         /// <summary>
+        /// The local file behind each path inside the share, for retrying failed files.
+        /// </summary>
+        public IReadOnlyDictionary<string, string> MapFailedFiles() => IsGroup
+            ? ShareLayout.Arrange(LocalPaths).Where(f => FailedFiles.Contains(f.relativePath)).ToDictionary(f => f.relativePath, f => f.localPath)
+            : FailedFiles.ToDictionary(p => p, p => Path.Combine(LocalPath, p.Replace('/', Path.DirectorySeparatorChar)));
+
+        /// <summary>
         /// Folder sizes take a walk of the whole tree, so they're counted off the UI thread.
         /// </summary>
         public async Task LoadFolderSizeAsync()
@@ -136,7 +166,9 @@ namespace InstaShare.ViewModels
                 return;
             try
             {
-                TotalBytes = await Task.Run(() => new DirectoryInfo(LocalPath).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length));
+                TotalBytes = await Task.Run(() => LocalPaths.Sum(path => Directory.Exists(path)
+                    ? new DirectoryInfo(path).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length)
+                    : new FileInfo(path).Length));
             }
             catch (Exception)
             {

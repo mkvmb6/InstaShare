@@ -12,11 +12,16 @@ namespace InstaShare
     /// </summary>
     public partial class App : Application
     {
+        // Explorer starts its copies within a moment of each other; a pause this long means the selection is complete.
+        private static readonly TimeSpan SelectionQuietTime = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan SelectionMaxWait = TimeSpan.FromSeconds(15);
+
         private SingleInstance? _instance;
         private TrayIcon? _tray;
         private GlobalHotkey? _hotkey;
         private MainWindow? _window;
         private MainViewModel? _viewModel;
+        private SelectionBatcher? _selection;
 
         internal static void ApplyTheme(AppTheme theme) =>
             Current.ThemeMode = theme switch
@@ -62,6 +67,13 @@ namespace InstaShare
             var history = new ShareHistory(fileManager, AppPaths.HistoryFile, AppPaths.LegacyHistoryFile);
             var settingsViewModel = new SettingsViewModel(settings, AppPaths.SettingsFile);
             _viewModel = new MainViewModel(fileManager, history, settingsViewModel);
+
+            _selection = new SelectionBatcher(SelectionQuietTime, SelectionMaxWait,
+                paths => Dispatcher.InvokeAsync(() =>
+                {
+                    _viewModel!.AddPaths(paths);
+                    _window!.ShowAndActivate();
+                }));
 
             _window = new MainWindow(_viewModel);
             _window.ExitRequested += (_, _) => ExitApp();
@@ -114,6 +126,12 @@ namespace InstaShare
             }
 
             var paths = args.Where(a => !a.StartsWith("--") && !a.StartsWith("-ToastActivated")).ToList();
+            if (paths.Count > 0 && args.Contains(WindowsIntegration.SelectionArgument))
+            {
+                // One of several launches Explorer makes for a multi-file selection; collect them all first.
+                _selection!.Add(paths);
+                return;
+            }
             if (paths.Count > 0)
             {
                 _viewModel!.AddPaths(paths);
@@ -204,6 +222,7 @@ namespace InstaShare
 
         private void Application_Exit(object sender, ExitEventArgs e)
         {
+            _selection?.Dispose();
             _hotkey?.Dispose();
             _tray?.Dispose();
             _instance?.Dispose();

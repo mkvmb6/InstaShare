@@ -20,6 +20,10 @@ namespace InstaShare.Models
         public bool IsFolder { get; set; }
         public ShareStatus Status { get; set; } = ShareStatus.Completed;
         public string? Token { get; set; }
+        /// <summary>
+        /// Shown in History. Set for shares of several items, whose FilePath is only the first of them.
+        /// </summary>
+        public string? Name { get; set; }
 
         public DateTime EffectiveExpiresUtc => ExpiresUtc ?? UploadTimeUtc + LegacyExpiry;
 
@@ -27,6 +31,8 @@ namespace InstaShare.Models
         {
             get
             {
+                if (!string.IsNullOrEmpty(Name))
+                    return Name;
                 var name = Path.GetFileName(FilePath.TrimEnd('\\', '/'));
                 return string.IsNullOrEmpty(name) ? FilePath : name;
             }

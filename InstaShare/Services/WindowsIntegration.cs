@@ -11,6 +11,11 @@ namespace InstaShare.Services
     internal static class WindowsIntegration
     {
         public const string BackgroundArgument = "--background";
+        /// <summary>
+        /// Marks a launch from the right-click menu, where Explorer starts one process per selected item.
+        /// The running InstaShare gathers them back into one share.
+        /// </summary>
+        public const string SelectionArgument = "--selection";
 
         private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private static readonly string[] ContextMenuKeys = [@"Software\Classes\*\shell\InstaShare", @"Software\Classes\Directory\shell\InstaShare"];
@@ -70,9 +75,11 @@ namespace InstaShare.Services
                 using var key = Registry.CurrentUser.CreateSubKey(path);
                 key.SetValue("", "Share with InstaShare");
                 key.SetValue("Icon", $"\"{exe}\",0");
+                // Without this Explorer hides the entry once more than 15 items are selected; with it, up to 100.
+                key.SetValue("MultiSelectModel", "Player");
                 using var command = key.CreateSubKey("command");
-                // Explorer starts one process per selected item; the single-instance pipe gathers them into one queue.
-                command.SetValue("", $"\"{exe}\" \"%1\"");
+                // Explorer still starts one process per selected item; SelectionArgument lets the running copy regroup them.
+                command.SetValue("", $"\"{exe}\" {SelectionArgument} \"%1\"");
             }
             // Tell Explorer, so the menu changes without signing out.
             NativeMethods.SHChangeNotify(NativeMethods.SHCNE_ASSOCCHANGED, NativeMethods.SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero);

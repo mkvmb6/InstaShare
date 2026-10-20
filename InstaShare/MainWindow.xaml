@@ -372,7 +372,7 @@
                             <CheckBox DockPanel.Dock="Right" IsChecked="{Binding ContextMenu}" VerticalAlignment="Center" AutomationProperties.Name="Explorer menu" />
                             <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="Add &quot;Share with InstaShare&quot; to the right-click menu" />
-                                <TextBlock Text="On Windows 11 it's under Show more options. No admin rights needed." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
+                                <TextBlock Text="On Windows 11 it's under Show more options. Several selected files share one link. No admin rights needed." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
                             </StackPanel>
                         </DockPanel>
                     </Border>
