@@ -12,6 +12,8 @@ export interface ShareIndex {
   name?: string;
   kind?: 'file' | 'folder';
   expiresUtc?: string;
+  /** Picture for chat-app link previews, made by the desktop app. Not part of the file list. */
+  preview?: { url: string; width?: number; height?: number };
   files: FileEntry[];
 }
 

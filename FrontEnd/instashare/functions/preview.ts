@@ -12,7 +12,7 @@ export interface Preview {
     title: string;
     description: string;
     image: string;
-    /** Size hints help WhatsApp lay out the card; only known for the fallback image. */
+    /** Size hints help WhatsApp lay out the card before the image loads. */
     imageSize?: { width: number; height: number };
     imageAlt: string;
     card: 'summary' | 'summary_large_image';
@@ -65,6 +65,16 @@ export async function buildPreview(shareId: string, pageUrl: URL, env: PreviewEn
     if (Number.isFinite(expires)) parts.push(`expires in ${formatDuration(expires)}`);
     const description = `${capitalize(parts.join(' · '))}. Shared with InstaShare.`;
 
+    // Made by desktop 2.1+: the image, a video frame, a PDF page or a collage, already small.
+    if (index.preview?.url) {
+        const { url, width, height } = index.preview;
+        return {
+            title: name, description, image: url, imageAlt: name, card: 'summary_large_image',
+            imageSize: width && height ? { width, height } : undefined,
+        };
+    }
+
+    // Older shares: use an uploaded image if one is small enough.
     const image = pickImage(files);
     return image
         ? { title: name, description, image: image.url, imageAlt: name, card: 'summary_large_image' }
@@ -110,9 +120,13 @@ export function rewriteHead(page: Response, preview: Preview): Response {
     let rewriter = new HTMLRewriter()
         .on('title', { element: (el) => { el.setInnerContent(`${preview.title} · InstaShare`); } });
     for (const h of handlers) rewriter = rewriter.on(h.selector, { element: h.element });
-    // The fallback image's size is in index.html; drop it for share images, whose size we don't know.
-    if (!preview.imageSize)
-        rewriter = rewriter.on('meta[property="og:image:width"], meta[property="og:image:height"]', { element: (el) => { el.remove(); } });
+    // index.html carries the fallback image's size; replace it, or drop it when the size isn't known.
+    const size = preview.imageSize;
+    rewriter = size
+        ? rewriter
+            .on('meta[property="og:image:width"]', { element: (el) => { el.setAttribute('content', String(size.width)); } })
+            .on('meta[property="og:image:height"]', { element: (el) => { el.setAttribute('content', String(size.height)); } })
+        : rewriter.on('meta[property="og:image:width"], meta[property="og:image:height"]', { element: (el) => { el.remove(); } });
 
     const response = rewriter.transform(page);
     const headers = new Headers(response.headers);

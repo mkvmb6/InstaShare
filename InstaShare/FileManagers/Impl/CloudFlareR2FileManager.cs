@@ -28,6 +28,8 @@ namespace InstaShare.FileManagers.Impl
         private const long MinBytesPerSecond = 50_000; // Assuming min speed around 50KBps
         private static readonly TimeSpan MinRequestTimeout = TimeSpan.FromMinutes(5);
         private static readonly TimeSpan IndexFlushInterval = TimeSpan.FromSeconds(1);
+        // Inside the share, so it's deleted with it; the dot keeps it apart from shared files and folders.
+        private const string PreviewKey = ".instashare/preview.jpg";
 
         // One client for the app's lifetime; per-request timeouts are applied through cancellation tokens.
         private static readonly HttpClient Http = new(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) })
@@ -63,6 +65,7 @@ namespace InstaShare.FileManagers.Impl
             progress?.Report(report with { Status = "Generating link...", LinkLive = false });
             await index.FlushAsync(cancellationToken);
             progress?.Report(report);
+            var preview = PublishPreview(share, PreviewRenderer.PickCandidates([(filePath, fileName)]), index, cancellationToken);
 
             var tracker = new TransferProgress(totalSize, (percent, speed, sent, eta) =>
                 progress?.Report(report with { Percent = percent, Speed = speed, BytesSent = sent, Eta = eta }));
@@ -78,6 +81,7 @@ namespace InstaShare.FileManagers.Impl
                 throw;
             }
 
+            await preview;
             await index.CompleteAsync();
             return (fileId, sharedLink);
         }
@@ -117,8 +121,10 @@ namespace InstaShare.FileManagers.Impl
             await index.FlushAsync(cancellationToken);
             index.StartPeriodicFlush(IndexFlushInterval);
             progress?.Report(report);
+            var preview = PublishPreview(share, PreviewRenderer.PickCandidates(work.Select(w => (w.LocalPath, w.Entry.path))), index, cancellationToken);
 
             var failedFiles = await UploadFolderFiles(share, work, index, report, progress, cancellationToken);
+            await preview;
             await index.CompleteAsync();
             return (baseFolder, sharedLink, failedFiles);
         }
@@ -221,6 +227,40 @@ namespace InstaShare.FileManagers.Impl
                     urls[batch[i].Key] = signed[i];
             });
             return urls;
+        }
+
+        /// <summary>
+        /// Renders the chat-app preview from the local files, uploads it next to them and adds it to the index.
+        /// Runs alongside the upload and never throws: a share without a preview still works.
+        /// </summary>
+        private async Task PublishPreview(ShareRef share, IReadOnlyList<PreviewCandidate> candidates, IndexPublisher index, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var preview = await PreviewRenderer.RenderAsync(candidates, cancellationToken);
+                if (preview == null)
+                    return;
+
+                var key = share.Prefix + PreviewKey;
+                var put = new PutRequest(key, preview.Jpeg.Length, "image/jpeg", null);
+                string? url = null;
+                using var response = await SendWithRetry(async freshUrl =>
+                {
+                    if (freshUrl || url == null)
+                        url = (await _api.SignPuts(share, [put], cancellationToken))[0];
+                    var content = new ByteArrayContent(preview.Jpeg);
+                    content.Headers.ContentLength = preview.Jpeg.Length;
+                    AddObjectHeaders(content, put);
+                    return (url, content, null);
+                }, preview.Jpeg.Length, cancellationToken);
+
+                index.SetPreview(new SharePreview { url = ShareKeys.GetCdnUrl(key), width = preview.Width, height = preview.Height });
+                await index.FlushAsync(cancellationToken);
+            }
+            catch (Exception)
+            {
+                // Cancelled, offline, or nothing decodable; the link just shows the generic card.
+            }
         }
 
         private static PutRequest PutFor(string filePath, string key, long size)

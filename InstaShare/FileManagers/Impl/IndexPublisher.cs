@@ -17,6 +17,15 @@ namespace InstaShare.FileManagers.Impl
         private CancellationTokenSource? _loopStop;
         private Task? _loop;
 
+        public void SetPreview(SharePreview preview)
+        {
+            lock (_lock)
+            {
+                document.preview = preview;
+                _dirty = true;
+            }
+        }
+
         public void SetStatus(FileIndex entry, string status)
         {
             lock (_lock)

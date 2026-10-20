@@ -52,6 +52,16 @@ describe('buildPreview', () => {
         expect(pdf.imageSize).toEqual({ width: 1200, height: 630 });
     });
 
+    it('prefers the preview the desktop app made, with its size', async () => {
+        const p = await buildPreview('s', page, { CDN_BASE_URL: cdn }, serve({
+            name: 'Trip', preview: { url: `${cdn}/s/.instashare/preview.jpg`, width: 1200, height: 630 },
+            files: [file('Trip/huge.jpg', 9_000_000), file('Trip/clip.mp4', 50_000_000)],
+        }), now);
+        expect(p.image).toBe(`${cdn}/s/.instashare/preview.jpg`);
+        expect(p.imageSize).toEqual({ width: 1200, height: 630 });
+        expect(p.title).toBe('Trip');
+    });
+
     it('reads old bare-array shares', async () => {
         const p = await buildPreview('s', page, { CDN_BASE_URL: cdn }, serve([file('Album/1.png'), file('Album/2.png')]), now);
         expect(p.title).toBe('Album');

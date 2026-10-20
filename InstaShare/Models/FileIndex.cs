@@ -17,6 +17,10 @@
         public string? name { get; set; }
         public string? kind { get; set; }
         public DateTime? expiresUtc { get; set; }
+        /// <summary>
+        /// The picture chat apps show for the link. Added once it's uploaded, so it can be missing.
+        /// </summary>
+        public SharePreview? preview { get; set; }
         public required IReadOnlyList<FileIndex> files { get; set; }
 
         /// <summary>
@@ -29,6 +33,13 @@
                 return new ShareIndexDocument { files = array.ToObject<List<FileIndex>>() ?? [] };
             return token.ToObject<ShareIndexDocument>() ?? throw new FormatException("index.json is empty.");
         }
+    }
+
+    internal class SharePreview
+    {
+        public required string url { get; set; }
+        public int width { get; set; }
+        public int height { get; set; }
     }
 
     internal class UploadStatus
