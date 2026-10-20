@@ -2,17 +2,18 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
-import FolderViewer from './FolderViewer.tsx'
+import FolderViewer, { Shell } from './FolderViewer.tsx'
+import { NotFound } from './components/custom/States.tsx'
 import { ThemeProvider } from 'next-themes'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <BrowserRouter>
         <Routes>
-          <Route path="/view/:folderId" element={<FolderViewer />} />
-          <Route path="/view/:folderId/:subPath/*" element={<FolderViewer />} />
-          <Route path="*" element={<p className="p-4">404 Not Found</p>} />
+          {/* The rest of the URL is the path inside the share, however deep. */}
+          <Route path="/view/:shareId/*" element={<FolderViewer />} />
+          <Route path="*" element={<Shell><NotFound /></Shell>} />
         </Routes>
       </BrowserRouter>
     </ThemeProvider>

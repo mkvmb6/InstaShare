@@ -7,8 +7,10 @@ namespace InstaShare.FileManagers.Impl
     /// Owns an upload's index.json. Status changes are batched, and writes are serialized so an
     /// older snapshot can never overwrite a newer one.
     /// </summary>
-    internal sealed class IndexPublisher(IReadOnlyList<FileIndex> entries, Func<string, CancellationToken, Task> upload)
+    internal sealed class IndexPublisher(ShareIndexDocument document, Func<string, CancellationToken, Task> upload)
     {
+        private readonly IReadOnlyList<FileIndex> entries = document.files;
+
         private readonly object _lock = new();
         private readonly SemaphoreSlim _writeLock = new(1, 1);
         private bool _dirty = true;
@@ -37,7 +39,7 @@ namespace InstaShare.FileManagers.Impl
                 {
                     if (!_dirty)
                         return;
-                    json = JsonConvert.SerializeObject(entries);
+                    json = JsonConvert.SerializeObject(document, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore, DateTimeZoneHandling = DateTimeZoneHandling.Utc });
                     _dirty = false;
                 }
 

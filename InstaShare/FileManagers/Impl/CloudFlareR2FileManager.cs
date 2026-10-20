@@ -57,7 +57,7 @@ namespace InstaShare.FileManagers.Impl
                 size = totalSize,
                 status = UploadStatus.Uploading
             };
-            var index = new IndexPublisher([entry], IndexWriter(share));
+            var index = new IndexPublisher(new ShareIndexDocument { name = fileName, kind = "file", expiresUtc = expiresUtc, files = [entry] }, IndexWriter(share));
 
             var report = new UploadProgress(fileId, sharedLink, "Uploading", 0, null, 0, totalSize, null, true, share.Token, expiresUtc);
             progress?.Report(report with { Status = "Generating link...", LinkLive = false });
@@ -110,7 +110,7 @@ namespace InstaShare.FileManagers.Impl
                 };
                 return new FolderFile(file, relativePath, entry, PutFor(file, key, size));
             }).ToList();
-            var index = new IndexPublisher([.. work.Select(w => w.Entry)], IndexWriter(share));
+            var index = new IndexPublisher(new ShareIndexDocument { name = folderName, kind = "folder", expiresUtc = expiresUtc, files = [.. work.Select(w => w.Entry)] }, IndexWriter(share));
 
             var report = new UploadProgress(baseFolder, sharedLink, $"0/{files.Length} files", 0, null, 0, work.Sum(w => w.Entry.size), null, true, share.Token, expiresUtc);
             progress?.Report(report with { Status = "Generating link...", LinkLive = false });
@@ -132,7 +132,8 @@ namespace InstaShare.FileManagers.Impl
             // The published index is the source of truth for every other file's status.
             // The query string skips any copy the CDN still has cached.
             var indexUrl = $"{ShareKeys.GetCdnUrl(share.Prefix + "index.json")}?v={DateTime.UtcNow.Ticks}";
-            var entries = JsonConvert.DeserializeObject<List<FileIndex>>(await Http.GetStringAsync(indexUrl, cancellationToken)) ?? [];
+            var document = ShareIndexDocument.Parse(await Http.GetStringAsync(indexUrl, cancellationToken));
+            var entries = document.files;
 
             var byPath = entries.ToDictionary(e => e.path);
             var work = new List<FolderFile>();
@@ -147,7 +148,7 @@ namespace InstaShare.FileManagers.Impl
                 work.Add(new FolderFile(file, relativePath, entry, PutFor(file, $"{folderId}/{relativePath}", entry.size)));
             }
 
-            var index = new IndexPublisher(entries, IndexWriter(share));
+            var index = new IndexPublisher(document, IndexWriter(share));
             var report = new UploadProgress(folderId, sharedLink, "Preparing retry...", 0, null, 0, work.Sum(w => w.Entry.size), null, true, token, null);
             progress?.Report(report);
             await index.FlushAsync(cancellationToken);
