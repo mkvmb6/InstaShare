@@ -12,7 +12,7 @@
 		<UseWindowsForms>true</UseWindowsForms>
 		<ApplicationIcon>Assets\InstaShare.ico</ApplicationIcon>
 		<!-- Bump for each release; the installer compares it to decide between install and update. -->
-		<Version>2.2.0</Version>
+		<Version>2.2.1</Version>
 		<Product>InstaShare</Product>
 		<Company>YourCodeLab</Company>
 		<!-- ThemeMode (built-in Fluent theme) is marked experimental -->
