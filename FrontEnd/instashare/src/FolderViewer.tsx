@@ -12,9 +12,10 @@ import ThemeMenu from '@/components/custom/ThemeMenu';
 import Toolbar, { type SortKey } from '@/components/custom/Toolbar';
 import { LoadError, Loading, MissingShare } from '@/components/custom/States';
 import { usePreview } from '@/hooks/usePreview';
+import { rememberShare } from '@/utils/recent';
 import { useNow, useShare } from '@/hooks/useShare';
 import type { FileEntry, Item } from '@/models/fileEntry';
-import { encodePath, formatBytes, formatDuration, isPreviewable, itemsAt, normalizePath, smartCompare, summarize } from '@/utils/utils';
+import { encodePath, formatBytes, formatDuration, isPreviewable, itemsAt, normalizePath, smartCompare, summarize, getFileKind } from '@/utils/utils';
 import { downloadUrl } from '@/utils/download';
 
 type FileItem = Extract<Item, { type: 'file' }>;
@@ -64,6 +65,13 @@ const ShareView: React.FC<{ shareId: string; routePath: string; files: FileEntry
     useEffect(() => {
         document.title = `${title} · InstaShare`;
     }, [title]);
+
+    // For the home page's "Recently opened" list. Kept only in this browser.
+    useEffect(() => {
+        if (files.length === 0) return;
+        const kind = isSingleFile ? getFileKind(normalizePath(files[0].path)) : 'folder';
+        rememberShare({ id: shareId, name: title, kind, expiresUtc });
+    }, [shareId, title, isSingleFile, expiresUtc, files]);
 
     const segments = currentPath ? currentPath.split('/') : [];
     const base = `/view/${encodeURIComponent(shareId)}`;

@@ -1,0 +1,4 @@
+# Cloudflare Pages response headers.
+# Share links are private: keep them out of search results. The home page may be listed.
+/view/*
+  X-Robots-Tag: noindex, nofollow

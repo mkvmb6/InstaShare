@@ -98,3 +98,43 @@ export function summarize(files: FileEntry[], currentPath = '') {
 
 /** Percent-encodes each path segment for use in a router path, keeping the slashes. */
 export const encodePath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
+
+/**
+ * Turns what someone pastes into the home page's link box into a route like "/view/<share>/<path>".
+ * Takes a whole link (this site, a Pages preview, or localhost) or just the part after "/view/".
+ * Returns null for anything that isn't a share link.
+ */
+export function shareLinkTarget(input: string, currentHost: string): string | null {
+    const text = input.trim();
+    if (!text) return null;
+
+    const looksLikeUrl = /^(https?:\/\/|[\w.-]+\.[a-z]{2,}(:\d+)?\/|localhost(:\d+)?\/)/i.test(text);
+    if (looksLikeUrl) {
+        let url: URL;
+        try {
+            url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+        } catch {
+            return null;
+        }
+        const host = url.hostname.toLowerCase();
+        const ours = host === currentHost.toLowerCase() || host === 'instashare.mohitkumarverma.com'
+            || host.endsWith('.instashare.pages.dev') || host === 'instashare.pages.dev';
+        if (!ours) return null;
+        const match = /^\/view\/(.+?)\/*$/.exec(url.pathname);
+        return match ? `/view/${match[1]}` : null;
+    }
+
+    // Just the share part, typed plain ("My Trip") or copied encoded ("My%20Trip").
+    const rest = text.replace(/^\/?view\//i, '').replace(/^\/+|\/+$/g, '');
+    if (!rest) return null;
+    const segments = rest.split('/').map((segment) => {
+        let plain = segment;
+        try {
+            plain = decodeURIComponent(segment);
+        } catch {
+            // A stray "%" is part of the name.
+        }
+        return encodeURIComponent(plain);
+    });
+    return `/view/${segments.join('/')}`;
+}
