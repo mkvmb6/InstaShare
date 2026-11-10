@@ -296,7 +296,36 @@
             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" DataContext="{Binding Settings}"
                           Visibility="{Binding DataContext.SelectedPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource VisibleWhenEquals}, ConverterParameter=Settings}">
                 <StackPanel Margin="0,0,4,0">
-                    <TextBlock Text="Sharing" Style="{StaticResource SectionHeader}" Margin="2,0,0,8" />
+                    <TextBlock Text="Account" Style="{StaticResource SectionHeader}" Margin="2,0,0,8" />
+                    <Border Style="{StaticResource SettingRow}">
+                        <StackPanel>
+                            <TextBlock Text="API key" />
+                            <TextBlock Text="Lets this PC upload to InstaShare. Ask the person who runs your InstaShare for one." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
+                            <TextBlock Text="{Binding ApiKeyStatus}" Margin="0,6,0,0" FontSize="12">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource SystemFillColorCautionBrush}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasApiKey}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <DockPanel Margin="0,8,0,0">
+                                <Button DockPanel.Dock="Right" Content="Remove" Margin="6,0,0,0" Command="{Binding RemoveApiKeyCommand}"
+                                        Visibility="{Binding HasApiKey, Converter={StaticResource VisibleWhen}}" />
+                                <Button DockPanel.Dock="Right" Content="Save" Margin="6,0,0,0" Style="{StaticResource AccentButtonStyle}" Command="{Binding SaveApiKeyCommand}" />
+                                <TextBox Text="{Binding ApiKeyInput, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="API key"
+                                         FontFamily="Consolas" VerticalContentAlignment="Center" />
+                            </DockPanel>
+                            <TextBlock Text="{Binding ApiKeyError}" Foreground="{DynamicResource SystemFillColorCriticalBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Visibility="{Binding ApiKeyError, Converter={StaticResource VisibleWhen}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Sharing" Style="{StaticResource SectionHeader}" />
                     <Border Style="{StaticResource SettingRow}">
                         <DockPanel>
                             <ComboBox DockPanel.Dock="Right" ItemsSource="{Binding ExpiryOptions}" SelectedItem="{Binding DefaultExpiry}" DisplayMemberPath="Label"

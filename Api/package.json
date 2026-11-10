@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "deploy": "wrangler deploy",
+    "keys": "node scripts/keys.mjs",
     "dev": "wrangler dev",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

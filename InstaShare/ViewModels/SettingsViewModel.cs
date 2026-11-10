@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using InstaShare.Services;
 
 namespace InstaShare.ViewModels
@@ -7,12 +8,15 @@ namespace InstaShare.ViewModels
     {
         private readonly AppSettings _settings;
         private readonly string _path;
+        private readonly ApiKeyStore _apiKey;
         private bool _loading = true;
 
-        public SettingsViewModel(AppSettings settings, string path)
+        public SettingsViewModel(AppSettings settings, string path, ApiKeyStore apiKey)
         {
             _settings = settings;
             _path = path;
+            _apiKey = apiKey;
+            RefreshApiKeyStatus();
             Theme = settings.Theme;
             DefaultExpiry = ExpiryOption.Closest(settings.DefaultExpiryHours);
             AutoCopyLink = settings.AutoCopyLink;
@@ -38,6 +42,68 @@ namespace InstaShare.ViewModels
                 _settings.TrayHintShown = value;
                 Save();
             }
+        }
+
+        /// <summary>
+        /// What's typed in the key box. Cleared once saved, so the key isn't left on screen.
+        /// </summary>
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(SaveApiKeyCommand))]
+        public partial string ApiKeyInput { get; set; } = "";
+
+        [ObservableProperty]
+        public partial string ApiKeyStatus { get; set; } = "";
+
+        [ObservableProperty]
+        public partial bool HasApiKey { get; set; }
+
+        [ObservableProperty]
+        public partial string? ApiKeyError { get; set; }
+
+        [RelayCommand(CanExecute = nameof(CanSaveApiKey))]
+        private void SaveApiKey()
+        {
+            var key = ApiKeyInput.Trim();
+            if (!ApiKeyStore.LooksValid(key))
+            {
+                ApiKeyError = "That doesn't look like an InstaShare key. Keys start with \"isk_\".";
+                return;
+            }
+            try
+            {
+                _apiKey.Set(key);
+                ApiKeyInput = "";
+                ApiKeyError = null;
+                RefreshApiKeyStatus();
+            }
+            catch (Exception ex)
+            {
+                ApiKeyError = $"Couldn't save the key: {ex.Message}";
+            }
+        }
+
+        private bool CanSaveApiKey() => !string.IsNullOrWhiteSpace(ApiKeyInput);
+
+        [RelayCommand]
+        private void RemoveApiKey()
+        {
+            try
+            {
+                _apiKey.Set(null);
+                ApiKeyError = null;
+                RefreshApiKeyStatus();
+            }
+            catch (Exception ex)
+            {
+                ApiKeyError = $"Couldn't remove the key: {ex.Message}";
+            }
+        }
+
+        private void RefreshApiKeyStatus()
+        {
+            var key = _apiKey.Get();
+            HasApiKey = key != null;
+            ApiKeyStatus = key == null ? "No key saved. Uploads won't work until you add one." : $"Saved: {ApiKeyStore.Mask(key)}";
         }
 
         [ObservableProperty]

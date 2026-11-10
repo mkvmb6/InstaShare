@@ -23,7 +23,8 @@ namespace InstaShare.FileManagers.Impl
     /// Client for the InstaShare API Worker. The Worker holds the storage keys and hands out presigned URLs;
     /// file bytes go straight to storage and never through it.
     /// </summary>
-    internal sealed class ShareApi(HttpClient http, string baseUrl)
+    /// <param name="apiKey">Read before every request, so a key pasted into Settings applies at once.</param>
+    internal sealed class ShareApi(HttpClient http, string baseUrl, Func<string?> apiKey)
     {
         private const int MaxAttempts = 4;
         private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
@@ -109,7 +110,10 @@ namespace InstaShare.FileManagers.Impl
                 try
                 {
                     using var content = new StringContent(payload, Encoding.UTF8, "application/json");
-                    using var response = await http.PostAsync(baseUrl + path, content, timeout.Token);
+                    using var request = new HttpRequestMessage(HttpMethod.Post, baseUrl + path) { Content = content };
+                    if (apiKey() is { Length: > 0 } key)
+                        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+                    using var response = await http.SendAsync(request, timeout.Token);
                     var text = await response.Content.ReadAsStringAsync(timeout.Token);
                     if (response.IsSuccessStatusCode)
                         return JsonConvert.DeserializeObject<T>(text, Json) ?? throw new ShareApiException(response.StatusCode, "Empty response from the server.");

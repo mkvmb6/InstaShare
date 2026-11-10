@@ -63,9 +63,10 @@ namespace InstaShare
             var settings = AppSettings.Load(AppPaths.SettingsFile);
             ApplyTheme(settings.Theme);
 
-            var fileManager = new CloudFlareR2FileManager();
+            var apiKey = new ApiKeyStore(AppPaths.ApiKeyFile);
+            var fileManager = new CloudFlareR2FileManager(apiKey.Get);
             var history = new ShareHistory(fileManager, AppPaths.HistoryFile, AppPaths.LegacyHistoryFile);
-            var settingsViewModel = new SettingsViewModel(settings, AppPaths.SettingsFile);
+            var settingsViewModel = new SettingsViewModel(settings, AppPaths.SettingsFile, apiKey);
             _viewModel = new MainViewModel(fileManager, history, settingsViewModel);
 
             _selection = new SelectionBatcher(SelectionQuietTime, SelectionMaxWait,

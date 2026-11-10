@@ -7,7 +7,9 @@
 //   npx wrangler secret put R2_ACCESS_KEY_ID      # R2 API token: Object Read & Write, "instashare" bucket only
 //   npx wrangler secret put R2_SECRET_ACCESS_KEY
 //   npx wrangler secret put TOKEN_SECRET          # Any long random string. Changing it invalidates every share token.
+//   npx wrangler kv namespace create API_KEYS     # Paste the id it prints into kv_namespaces below
 //   npm run deploy
+//   npm run keys -- create "Your name"            # Paste the key into InstaShare -> Settings -> API key
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "instashare-api",
@@ -16,10 +18,17 @@
   "workers_dev": false,
   "routes": [{ "pattern": "api.instashare.mohitkumarverma.com", "custom_domain": true }],
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "instashare" }],
+  // Hashes of API keys, with each key's name and daily cap. Managed with `npm run keys`.
+  "kv_namespaces": [{ "binding": "API_KEYS", "id": "9d19a4abfe504bd58ca81e58c79619a3" }],
+  // Per-key upload counter. SQLite-backed, which the Workers Free plan allows.
+  "durable_objects": { "bindings": [{ "name": "QUOTA", "class_name": "QuotaCounter" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["QuotaCounter"] }],
   "vars": {
     "BUCKET_NAME": "instashare",
     // 10 GB
-    "MAX_OBJECT_BYTES": "10737418240"
+    "MAX_OBJECT_BYTES": "10737418240",
+    // "true" refuses uploads without an API key. Set to "false" only briefly, while apps are updated.
+    "REQUIRE_API_KEY": "true"
   },
   // Deletes expired shares every hour, even if their owner never opens the app again.
   "triggers": { "crons": ["17 * * * *"] },

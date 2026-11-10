@@ -37,7 +37,13 @@ namespace InstaShare.FileManagers.Impl
             Timeout = Timeout.InfiniteTimeSpan
         };
 
-        private readonly ShareApi _api = new(Http, Constants.ApiBaseUrl);
+        private readonly ShareApi _api;
+
+        /// <param name="apiKey">The person's InstaShare API key; uploads are refused without one.</param>
+        public CloudFlareR2FileManager(Func<string?> apiKey)
+        {
+            _api = new ShareApi(Http, Constants.ApiBaseUrl, apiKey);
+        }
 
         private delegate Task<(string url, HttpContent content, ProgressStream? stream)> RequestFactory(bool freshUrl);
 

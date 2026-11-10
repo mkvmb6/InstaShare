@@ -18,7 +18,7 @@ Files are stored in the `instashare` R2 bucket and served from `cdn.instashare.m
 4. While the files upload, the app writes the share's `index.json`, which the viewer reads. It also makes the preview picture chat apps show for the link.
 5. Every hour, the Worker deletes shares that have expired.
 
-The exe contains no keys. The worst someone can do with it is upload within the size limit, and those files are deleted when they expire.
+Neither the exe nor the repo contains any keys. Creating a share or getting upload links needs an API key you've issued (see [API keys](#api-keys)), and each key has a daily upload cap. Deleting a share needs only that share's token, so people can always remove what they shared.
 
 ### What gets shared
 
@@ -81,7 +81,9 @@ One-time setup:
    npx wrangler secret put R2_ACCESS_KEY_ID
    npx wrangler secret put R2_SECRET_ACCESS_KEY
    npx wrangler secret put TOKEN_SECRET    # any long random string; changing it invalidates existing share tokens
+   npx wrangler kv namespace create API_KEYS   # put the id it prints into kv_namespaces in wrangler.jsonc
    npm run deploy
+   npm run keys -- create "Your name"          # paste the key into InstaShare → Settings → API key
    ```
 
    Deploying also sets up `api.instashare.mohitkumarverma.com` as a custom domain.
@@ -95,6 +97,22 @@ When you upgrade `wrangler`, also raise `@cloudflare/workers-types` to the versi
 ```sh
 npm view wrangler@<version> peerDependencies
 ```
+
+## API keys
+
+Each person who uploads needs their own key. Run these from `Api/`:
+
+```sh
+npm run keys -- create "Name"           # new key, 50 GB a day; shown once
+npm run keys -- create "Name" --gb 10   # new key with a different daily cap
+npm run keys -- list                    # who has a key, and their caps
+npm run keys -- revoke "Name"           # stops that key; others keep working
+```
+
+- **Storage:** KV (`API_KEYS`) stores only a hash of each key, with its name and cap. A lost key can't be recovered; revoke it and create a new one.
+- **Daily cap:** each key has an upload cap per UTC day, counted in a Durable Object (`QuotaCounter`). Upload links are signed for an exact size, so the count can't be cheated. A request that would go over the cap is refused, and nothing from it is counted.
+- **Requirement switch:** `REQUIRE_API_KEY` in `wrangler.jsonc` is `"true"`, so requests without a key are refused. While updating apps you can deploy with `--var REQUIRE_API_KEY:false` to let them through for a short time. A key that is sent still has to be valid.
+- **Free plan:** KV and SQLite-backed Durable Objects are both included in the Workers Free plan.
 
 ## Deploying the viewer
 
@@ -143,5 +161,5 @@ Tests: `dotnet test` from the repo root.
 | Part | Command | Covers |
 | --- | --- | --- |
 | Desktop app | `dotnet test` (repo root) | Upload progress, share history, links and encoding, the `index.json` format, preview pictures, multi-select grouping |
-| API Worker | `npm test` in `Api/` | Request signing (against AWS's published examples), share tokens, input checks, cleanup |
+| API Worker | `npm test` in `Api/` | Request signing (against AWS's published examples), share tokens, API keys and daily caps, input checks, cleanup |
 | Viewer | `npm test` in `FrontEnd/instashare/` | Folder listing, formatting, link-preview tags |

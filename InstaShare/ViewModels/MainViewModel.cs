@@ -444,7 +444,9 @@ namespace InstaShare.ViewModels
             }
             catch (Exception ex)
             {
-                OnStopped(item, cancelled: false, error: ex.Message);
+                OnStopped(item, cancelled: false, error: ex is InstaShare.FileManagers.Impl.ShareApiException { Status: System.Net.HttpStatusCode.Unauthorized }
+                    ? $"{ex.Message} Settings → API key."
+                    : ex.Message);
             }
             finally
             {

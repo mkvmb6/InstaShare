@@ -6,6 +6,8 @@ namespace InstaShare.Services
     {
         public static string DataDirectory { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Constants.AppName);
         public static string SettingsFile => Path.Combine(DataDirectory, "settings.json");
+        // Encrypted for the current Windows user; see ApiKeyStore.
+        public static string ApiKeyFile => Path.Combine(DataDirectory, "apikey.bin");
         public static string HistoryFile => Path.Combine(DataDirectory, Constants.UploadedFilesJson);
         // Where uploadedFiles.json lived before it moved to LocalAppData.
         public static string LegacyHistoryFile => Path.Combine(AppContext.BaseDirectory, Constants.UploadedFilesJson);

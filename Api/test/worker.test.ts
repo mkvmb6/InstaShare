@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import worker, { deleteExpiredShares, deleteLegacyShares, type Env } from '../src/index';
+import { hashKey } from '../src/keys';
+
+const TEST_KEY = 'isk_test-key-for-worker-tests-0000000000000000000';
+const testKv = async () => {
+  const data = new Map([['key:' + (await hashKey(TEST_KEY)), JSON.stringify({ name: 'Test', dailyBytes: 1e15, created: '' })]]);
+  return { get: async (k: string, type?: string) => (data.has(k) ? (type === 'json' ? JSON.parse(data.get(k)!) : data.get(k)) : null) } as unknown as KVNamespace;
+};
+const unlimitedQuota = {
+  idFromName: (n: string) => n,
+  get: () => ({ reserve: async (_b: number, limit: number) => ({ ok: true, used: 0, limit }) }),
+} as unknown as Env['QUOTA'];
 
 // Just enough of R2Bucket for the Worker's own calls. Presigned uploads go to R2 directly and aren't covered here.
 class FakeBucket {
@@ -37,7 +48,7 @@ class FakeBucket {
   }
 }
 
-function makeEnv() {
+async function makeEnv() {
   const bucket = new FakeBucket();
   const env = {
     BUCKET: bucket as unknown as R2Bucket,
@@ -47,18 +58,23 @@ function makeEnv() {
     R2_ACCESS_KEY_ID: 'AKID',
     R2_SECRET_ACCESS_KEY: 'secret',
     TOKEN_SECRET: 'token-secret',
+    API_KEYS: await testKv(),
+    QUOTA: unlimitedQuota,
+    REQUIRE_API_KEY: 'true',
   } satisfies Env;
   return { env, bucket };
 }
 
 async function call(env: Env, path: string, body: unknown) {
-  const response = await worker.fetch(new Request(`https://api.test${path}`, { method: 'POST', body: JSON.stringify(body) }), env);
+  const response = await worker.fetch(new Request(`https://api.test${path}`, {
+    method: 'POST', body: JSON.stringify(body), headers: { authorization: `Bearer ${TEST_KEY}` },
+  }), env);
   return { status: response.status, body: (await response.json()) as Record<string, any> };
 }
 
 describe('worker', () => {
   it('creates a share with a token and an expiry marker', async () => {
-    const { env, bucket } = makeEnv();
+    const { env, bucket } = await makeEnv();
     const { status, body } = await call(env, '/v1/shares', { kind: 'file', name: 'a b.txt', expiresInHours: 24 });
 
     expect(status).toBe(200);
@@ -69,7 +85,7 @@ describe('worker', () => {
   });
 
   it('signs uploads only inside the share and within the size limit', async () => {
-    const { env } = makeEnv();
+    const { env } = await makeEnv();
     const share = (await call(env, '/v1/shares', { kind: 'folder', expiresInHours: 1 })).body;
 
     const ok = await call(env, '/v1/sign', { ...share, objects: [{ key: `${share.prefix}a #1.txt`, size: 10, contentType: 'text/plain' }] });
@@ -81,7 +97,7 @@ describe('worker', () => {
   });
 
   it('rejects a wrong token', async () => {
-    const { env } = makeEnv();
+    const { env } = await makeEnv();
     const share = (await call(env, '/v1/shares', { kind: 'folder', expiresInHours: 1 })).body;
     const other = (await call(env, '/v1/shares', { kind: 'folder', expiresInHours: 1 })).body;
 
@@ -90,7 +106,7 @@ describe('worker', () => {
   });
 
   it('signs a reusable index URL', async () => {
-    const { env } = makeEnv();
+    const { env } = await makeEnv();
     const share = (await call(env, '/v1/shares', { kind: 'folder', expiresInHours: 1 })).body;
     const { status, body } = await call(env, '/v1/index', share);
     expect(status).toBe(200);
@@ -99,7 +115,7 @@ describe('worker', () => {
   });
 
   it('deletes the whole share and nothing else', async () => {
-    const { env, bucket } = makeEnv();
+    const { env, bucket } = await makeEnv();
     const share = (await call(env, '/v1/shares', { kind: 'folder', expiresInHours: 1 })).body;
     bucket.objects.set(`${share.prefix}index.json`, { body: '[]' });
     bucket.objects.set(`${share.prefix}a`, { body: 'x' });
@@ -110,7 +126,7 @@ describe('worker', () => {
   });
 
   it('refuses uploads after a share expires', async () => {
-    const { env, bucket } = makeEnv();
+    const { env, bucket } = await makeEnv();
     const share = (await call(env, '/v1/shares', { kind: 'folder', expiresInHours: 1 })).body;
     bucket.objects.get('_shares/' + share.prefix.slice(0, -1))!.customMetadata!.expires = new Date(Date.now() - 1000).toISOString();
 
@@ -118,7 +134,7 @@ describe('worker', () => {
   });
 
   it('cleans up expired shares on the schedule and leaves the rest', async () => {
-    const { env, bucket } = makeEnv();
+    const { env, bucket } = await makeEnv();
     const old = (await call(env, '/v1/shares', { kind: 'folder', expiresInHours: 1 })).body;
     const fresh = (await call(env, '/v1/shares', { kind: 'folder', expiresInHours: 168 })).body;
     bucket.objects.set(`${old.prefix}file`, { body: 'x' });
@@ -131,14 +147,14 @@ describe('worker', () => {
   });
 
   it('answers bad input with a JSON error, not a crash', async () => {
-    const { env } = makeEnv();
+    const { env } = await makeEnv();
     const response = await worker.fetch(new Request('https://api.test/v1/shares', { method: 'POST', body: 'not json' }), env);
     expect(response.status).toBe(400);
     expect(await response.json()).toHaveProperty('error');
   });
 
   it('sweeps old shares from before the Worker, and nothing live or recent', async () => {
-    const { env, bucket } = makeEnv();
+    const { env, bucket } = await makeEnv();
     const uuid = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
     const daysAgo = (d: number) => new Date(Date.now() - d * 24 * 3600_000);
     bucket.objects.set(`${uuid(1)}/Photos/a.jpg`, { body: 'x', uploaded: daysAgo(30) }); // old folder share

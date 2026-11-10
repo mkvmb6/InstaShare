@@ -2,15 +2,19 @@
 //
 // File bytes never pass through here: the app gets short-lived presigned URLs and uploads straight to R2.
 // Each share gets a token at creation; every later call for that share must present it.
+// Creating and uploading also need an API key (see keys.ts), and count against that key's daily cap.
 
 import { presignUrl, signHeaders, type Credentials } from './sigv4';
+import { authenticate, reserveBytes, type Caller, type KeysEnv } from './keys';
+
+export { QuotaCounter } from './keys';
 import {
   HttpError, LEGACY_EXPIRY_MS, MAX_SINGLE_PUT_BYTES, MARKER_PREFIX, SHARE_PREFIX,
   checkBatch, checkExpiry, checkHeader, checkKey, checkPartNumber, checkPrefix, checkSize,
   markerKey, newPrefix, prefixFromMarker, shareToken, verifyToken,
 } from './shares';
 
-export interface Env {
+export interface Env extends KeysEnv {
   BUCKET: R2Bucket;
   BUCKET_NAME: string;
   /** Largest file anyone can share, in bytes. */
@@ -54,23 +58,24 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (request.method !== 'POST') throw new HttpError(405, 'Use POST.');
 
   const body = await readBody(request);
+  // Deleting and cleaning up need only the share's token, so people can always remove what they shared.
+  if (pathname === '/v1/shares/delete') return json(await deleteShareRequest(env, body));
+  if (pathname === '/v1/multipart/abort') return json(await abortMultipart(env, body));
+
+  const caller = await authenticate(request, env);
   switch (pathname) {
     case '/v1/shares':
       return json(await createShare(request, env, body));
     case '/v1/sign':
-      return json(await signPuts(env, body));
+      return json(await signPuts(env, body, caller));
     case '/v1/index':
       return json(await signIndex(env, body));
     case '/v1/multipart/create':
-      return json(await createMultipart(env, body));
+      return json(await createMultipart(env, body, caller));
     case '/v1/multipart/sign':
       return json(await signParts(env, body));
     case '/v1/multipart/complete':
       return json(await completeMultipart(env, body));
-    case '/v1/multipart/abort':
-      return json(await abortMultipart(env, body));
-    case '/v1/shares/delete':
-      return json(await deleteShareRequest(env, body));
     default:
       throw new HttpError(404, 'Not found.');
   }
@@ -94,14 +99,17 @@ async function createShare(request: Request, env: Env, body: Body) {
 }
 
 /** Presigned PUTs for whole files. Content-Length is signed, so each URL takes exactly the size asked for. */
-async function signPuts(env: Env, body: Body) {
+async function signPuts(env: Env, body: Body, caller: Caller) {
   const prefix = await authorize(env, body);
   const objects = checkBatch<Body>(body.objects, 'objects');
   const max = Math.min(maxObjectBytes(env), MAX_SINGLE_PUT_BYTES);
+  // Check every entry first, then count the batch against the cap in one go.
+  const checked = objects.map((o) => ({ o, key: checkKey(prefix, o.key), size: checkSize(o.size, max) }));
+  // A link is signed for an exact size, so what's counted here is what can be uploaded. The preview
+  // picture and re-signed links count again; that slightly overstates use, and never understates it.
+  await reserveBytes(env, caller, checked.reduce((sum, c) => sum + c.size, 0));
   const now = new Date();
-  const urls = await Promise.all(objects.map((o) => {
-    const key = checkKey(prefix, o.key);
-    const size = checkSize(o.size, max);
+  const urls = await Promise.all(checked.map(({ o, key, size }) => {
     const headers: Record<string, string> = {
       'content-length': String(size),
       'content-type': checkHeader(o.contentType, 'contentType', true)!,
@@ -127,10 +135,11 @@ async function signIndex(env: Env, body: Body) {
   return { url };
 }
 
-async function createMultipart(env: Env, body: Body) {
+async function createMultipart(env: Env, body: Body, caller: Caller) {
   const prefix = await authorize(env, body);
   const key = checkKey(prefix, body.key);
-  checkSize(body.size, maxObjectBytes(env));
+  // A large file counts once, here; its parts don't count again.
+  await reserveBytes(env, caller, checkSize(body.size, maxObjectBytes(env)));
   const headers: Record<string, string> = { 'content-type': checkHeader(body.contentType, 'contentType', true)! };
   const disposition = checkHeader(body.contentDisposition, 'contentDisposition', false);
   if (disposition) headers['content-disposition'] = disposition;
