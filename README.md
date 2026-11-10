@@ -5,19 +5,66 @@ Share files and folders from Windows with a link. Links expire on their own.
 | Folder | What it is | Hosted on |
 | --- | --- | --- |
 | `InstaShare/` | Windows desktop app (WPF, .NET 10) | Users' PCs |
-| `Api/` | API Worker. Holds the R2 keys and signs uploads | Cloudflare Workers, `api.instashare.mohitkumarverma.com` |
-| `FrontEnd/instashare/` | Viewer for share links | Cloudflare Pages, `instashare.mohitkumarverma.com` |
+| `Api/` | API Worker. Holds the R2 keys, signs uploads and deletes expired shares. | Cloudflare Workers, `api.instashare.mohitkumarverma.com` |
+| `FrontEnd/instashare/` | Viewer for share links, plus the Pages Function that makes link previews. See its [README](FrontEnd/instashare/README.md). | Cloudflare Pages, `instashare.mohitkumarverma.com` |
 
 Files are stored in the `instashare` R2 bucket and served from `cdn.instashare.mohitkumarverma.com`.
 
 ## How an upload works
 
-1. The app asks the API to create a share. The API records the share's expiry and returns a token for it.
+1. The app asks the API to create a share. The API records the share's expiry and returns a token for it. Only that token can upload into the share or delete it.
 2. The app asks the API for upload links. Each link is signed for one file and its exact size.
 3. The app uploads the file straight to R2. The bytes never pass through the Worker.
-4. Every hour, the Worker deletes shares that have expired.
+4. While the files upload, the app writes the share's `index.json`, which the viewer reads. It also makes the preview picture chat apps show for the link.
+5. Every hour, the Worker deletes shares that have expired.
 
 The exe contains no keys. The worst someone can do with it is upload within the size limit, and those files are deleted when they expire.
+
+### What gets shared
+
+- **One file:** a link to that file. The viewer shows it large, with a preview and a Download button.
+- **A folder:** a link to the folder, keeping its subfolders.
+- **Several items at once** (an Explorer selection, Send to, a drop, or a multi-file Browse): one link for all of them.
+  - Files sit at the top of the share, and folders keep their structure.
+  - Two files with the same name become `name (2)`.
+  - The share is named after the folder the items came from.
+  - Explorer starts one copy of the app per selected item. The running app gathers them, waiting for 1 s without a new item, up to 15 s.
+  - The right-click entry works for up to 100 items, Windows' limit for this kind of entry.
+
+### Limits
+
+| Limit | Value | Where it's set |
+| --- | --- | --- |
+| Expiry choices | 1 h, 6 h, 12 h, 1 day, 2 days, 7 days | `InstaShare/ViewModels/ExpiryOption.cs` and `ALLOWED_EXPIRY_HOURS` in `Api/src/shares.ts`. Keep the two the same, because the API rejects any other value. |
+| Largest file | 10 GB | `MAX_OBJECT_BYTES` in `Api/wrangler.jsonc` |
+| Cleanup | Every hour, at minute 17 | `triggers.crons` in `Api/wrangler.jsonc` |
+
+> **Bucket lifecycle rule:** the `instashare` bucket has a rule (`DeleteAfter1Day`) that deletes every object after 1 day. Until it's raised to 8 days or more, 2-day and 7-day shares stop working after the first day. Check it with `npx wrangler r2 bucket lifecycle list instashare`.
+
+### `index.json`
+
+Each share has an `index.json` at its top level. The desktop app writes it and keeps it updated during the upload. The viewer and the Pages Function read it.
+
+```json
+{
+  "name": "Trip",
+  "kind": "folder",
+  "expiresUtc": "2026-10-21T18:00:00Z",
+  "preview": { "url": "https://cdn…/<share>/.instashare/preview.jpg", "width": 1200, "height": 630 },
+  "files": [
+    { "path": "Trip/beach.jpg", "url": "https://cdn…/<share>/Trip/beach.jpg", "size": 268509, "status": "uploaded" }
+  ]
+}
+```
+
+- `status` is `uploading`, `uploaded` or `failed`.
+- Each file's `url` is percent-encoded segment by segment, so names with spaces, `#`, `?` or `%` work. `path` holds the plain name.
+- `preview` appears once the preview picture is uploaded. The desktop app makes it from the local files:
+  - one image becomes a smaller copy of it
+  - a video becomes a frame with a play button
+  - a PDF becomes its first page
+  - several items become a collage of up to four, with "+N" for the rest
+- Shares from versions before 2.0 used a plain array of files. The viewer still reads that format.
 
 ## Deploying the API
 
@@ -39,9 +86,29 @@ One-time setup:
 
    Deploying also sets up `api.instashare.mohitkumarverma.com` as a custom domain.
 
-3. Once the new app is out, **delete the old R2 API token** that was embedded in earlier builds.
+3. **Delete the old R2 API token** that was embedded in builds before the API existed. Anyone with one of those exes can use it until it's deleted.
+
+Later deploys: `npm run deploy` from `Api/`. Tests: `npm test`.
+
+When you upgrade `wrangler`, also raise `@cloudflare/workers-types` to the version it lists, or `npm install` fails:
+
+```sh
+npm view wrangler@<version> peerDependencies
+```
+
+## Deploying the viewer
+
+```sh
+cd FrontEnd/instashare
+npm run build
+npx wrangler pages deploy dist --branch main
+```
+
+Use `--branch main` so the deploy goes to production, and deploy with wrangler so `functions/` goes up too. The [viewer README](FrontEnd/instashare/README.md) explains both.
 
 Tests: `npm test`.
+
+When `index.json` changes format, deploy the viewer before releasing the desktop app. Otherwise the live viewer receives shares it can't read.
 
 ## Releasing the desktop app
 
@@ -53,7 +120,7 @@ Tests: `npm test`.
    dotnet publish -c Release -p:PublishProfile=SingleExe
    ```
 
-3. Share `InstaShare/bin/publish/InstaShare.exe`.
+3. Share `InstaShare/bin/publish/InstaShare.exe`, a single self-contained file of about 80 MB.
 
 Running the exe opens an installer that:
 
@@ -63,10 +130,18 @@ Running the exe opens an installer that:
 - Adds InstaShare to **Send to**, and optionally starts it with Windows.
 - Registers it in *Apps & features* so it can be uninstalled.
 
-It installs for the current user only, so it never asks for admin rights. Running a newer exe updates the installed copy and keeps the user's settings.
+It installs for the current user only, so it never asks for admin rights. Running a newer exe updates the installed copy and keeps the user's settings. Settings and share history are stored in `%LocalAppData%\InstaShare`.
 
 The exe isn't code-signed, so Windows SmartScreen shows "Windows protected your PC" the first time. Click **More info → Run anyway**. Signing it with a code-signing certificate removes the warning.
 
 To try the installer from a Debug build, run it with `--install`.
 
 Tests: `dotnet test` from the repo root.
+
+## Tests
+
+| Part | Command | Covers |
+| --- | --- | --- |
+| Desktop app | `dotnet test` (repo root) | Upload progress, share history, links and encoding, the `index.json` format, preview pictures, multi-select grouping |
+| API Worker | `npm test` in `Api/` | Request signing (against AWS's published examples), share tokens, input checks, cleanup |
+| Viewer | `npm test` in `FrontEnd/instashare/` | Folder listing, formatting, link-preview tags |
