@@ -43,6 +43,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $exe = 'InstaShare/bin/publish/InstaShare.exe'
+          if (-not (Test-Path $exe)) {
+            Write-Error "$exe wasn't built. Check that InstaShare/Properties/PublishProfiles/SingleExe.pubxml is committed."
+            exit 1
+          }
           $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
           "$hash  InstaShare.exe" | Set-Content -NoNewline -Encoding ascii InstaShare/bin/publish/InstaShare.exe.sha256
           gh release create '${{ github.ref_name }}' $exe InstaShare/bin/publish/InstaShare.exe.sha256 `
