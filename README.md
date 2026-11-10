@@ -130,15 +130,27 @@ When `index.json` changes format, deploy the viewer before releasing the desktop
 
 ## Releasing the desktop app
 
-1. Increase `<Version>` in `InstaShare/InstaShare.csproj`. The installer compares versions to decide between installing and updating.
-2. Publish:
+Releases are built by GitHub Actions ([.github/workflows/release.yml](.github/workflows/release.yml)):
+
+1. Increase `<Version>` in `InstaShare/InstaShare.csproj` and commit it.
+2. Tag that commit and push the tag:
 
    ```sh
-   cd InstaShare
-   dotnet publish -c Release -p:PublishProfile=SingleExe
+   git tag v2.2.0
+   git push origin v2.2.0
    ```
 
-3. Share `InstaShare/bin/publish/InstaShare.exe`, a single self-contained file of about 80 MB.
+The workflow checks that the tag matches `<Version>`, runs the tests, publishes the exe and creates a GitHub release with `InstaShare.exe` (about 80 MB) and `InstaShare.exe.sha256` attached. The release is public, which is fine: uploads need an API key, so the exe alone can't use your bucket.
+
+To build the exe by hand instead: `dotnet publish -c Release -p:PublishProfile=SingleExe` in `InstaShare/`; it lands in `InstaShare/bin/publish/`.
+
+### Updates
+
+The installed app checks `api.github.com/repos/mkvmb6/InstaShare/releases/latest` 20 seconds after it starts and then once a day. When the release's version is higher than its own, it downloads the exe in the background (only while no uploads are running) and checks it against the `.sha256` file. It then shows a notification and a **Restart to update** button in Settings. If the person just exits, the update installs then and the next start runs it.
+
+Installing is done by the new exe, started with `--apply-update <pid>`. It waits for the old copy to exit, copies itself over it with the same options (context menu, Send to, start-up), and starts it again. Only files from this repo's releases are accepted; drafts and pre-releases are ignored. Settings → **Download updates automatically** turns the daily check off; **Check for updates** still works.
+
+Copies before 2.2.0 have no updater, so install 2.2.0 once by hand.
 
 Running the exe opens an installer that:
 
@@ -160,6 +172,6 @@ Tests: `dotnet test` from the repo root.
 
 | Part | Command | Covers |
 | --- | --- | --- |
-| Desktop app | `dotnet test` (repo root) | Upload progress, share history, links and encoding, the `index.json` format, preview pictures, multi-select grouping |
+| Desktop app | `dotnet test` (repo root) | Upload progress, share history, links and encoding, the `index.json` format, preview pictures, multi-select grouping, update checks and download verification |
 | API Worker | `npm test` in `Api/` | Request signing (against AWS's published examples), share tokens, API keys and daily caps, input checks, cleanup |
 | Viewer | `npm test` in `FrontEnd/instashare/` | Folder listing, formatting, link-preview tags |

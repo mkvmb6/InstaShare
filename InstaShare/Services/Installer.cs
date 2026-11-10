@@ -83,6 +83,53 @@ namespace InstaShare.Services
         }
 
         /// <summary>
+        /// Run by an exe the updater downloaded: waits for the old copy to exit, then installs over it with the
+        /// same options, without showing anything. Starts the new version afterwards if asked to.
+        /// </summary>
+        public static async Task ApplyUpdate(int oldProcessId, bool restart)
+        {
+            if (oldProcessId > 0)
+            {
+                try
+                {
+                    using var old = Process.GetProcessById(oldProcessId);
+                    using var timeout = new CancellationTokenSource(CloseTimeout);
+                    await old.WaitForExitAsync(timeout.Token);
+                }
+                catch (ArgumentException)
+                {
+                    // Already gone.
+                }
+            }
+
+            // Someone installed a newer version by hand in the meantime.
+            if (InstalledVersion is { } installed && Updater.Normalize(installed) > Updater.Normalize(CurrentVersion))
+            {
+                if (restart)
+                    LaunchInstalled([]);
+                return;
+            }
+
+            var options = CurrentOptions();
+            // The exe can stay locked for a moment after its process exits.
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    await Install(options, new Progress<string>());
+                    break;
+                }
+                catch (IOException) when (attempt < 10)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1));
+                }
+            }
+
+            if (restart)
+                LaunchInstalled([Updater.UpdatedArgument]);
+        }
+
+        /// <summary>
         /// Starts the installed copy, passing on any files this launch was given.
         /// </summary>
         public static void LaunchInstalled(IEnumerable<string> args)

@@ -31,6 +31,21 @@ namespace InstaShare.ViewModels
         /// </summary>
         public event Action<string>? Failed;
 
+        /// <summary>
+        /// Set by the app before the window is created.
+        /// </summary>
+        public UpdateViewModel? Updates { get; set; }
+
+        public bool AutoUpdate
+        {
+            get => _settings.AutoUpdate;
+            set
+            {
+                _settings.AutoUpdate = value;
+                Save();
+            }
+        }
+
         public IReadOnlyList<AppTheme> ThemeOptions { get; } = Enum.GetValues<AppTheme>();
         public IReadOnlyList<ExpiryOption> ExpiryOptions => ExpiryOption.All;
         public string HotkeyText => Services.GlobalHotkey.DisplayText;

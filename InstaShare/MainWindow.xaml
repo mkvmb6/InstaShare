@@ -415,6 +415,32 @@
                         </DockPanel>
                     </Border>
 
+                    <TextBlock Text="Updates" Style="{StaticResource SectionHeader}" />
+                    <Border Style="{StaticResource SettingRow}" DataContext="{Binding Updates}">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Restart to update" Command="{Binding PrimaryCommand}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                    Style="{StaticResource AccentButtonStyle}" Visibility="{Binding IsReady, Converter={StaticResource VisibleWhen}}" />
+                            <Button DockPanel.Dock="Right" Content="Check for updates" Command="{Binding PrimaryCommand}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                    Visibility="{Binding IsReady, Converter={StaticResource VisibleWhen}, ConverterParameter=Invert}" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="{Binding CurrentVersion, StringFormat='InstaShare {0}'}" />
+                                <TextBlock Text="{Binding StatusText}" Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None"
+                                           Visibility="{Binding StatusText, Converter={StaticResource VisibleWhen}}" />
+                                <ProgressBar Value="{Binding Progress, Mode=OneWay}" Maximum="1" Margin="0,6,0,0" IsIndeterminate="{Binding IsChecking, Mode=OneWay}"
+                                             Visibility="{Binding IsWorking, Converter={StaticResource VisibleWhen}}" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                    <Border Style="{StaticResource SettingRow}">
+                        <DockPanel>
+                            <CheckBox DockPanel.Dock="Right" IsChecked="{Binding AutoUpdate}" VerticalAlignment="Center" AutomationProperties.Name="Download updates automatically" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Download updates automatically" />
+                                <TextBlock Text="Checks once a day and waits until uploads finish. Updates install when you restart InstaShare." Style="{StaticResource Secondary}" TextWrapping="Wrap" TextTrimming="None" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
                     <TextBlock Text="Keyboard shortcuts" Style="{StaticResource SectionHeader}" />
                     <Border Style="{StaticResource Card}">
                         <TextBlock Style="{StaticResource Secondary}" TextTrimming="None" LineHeight="20">

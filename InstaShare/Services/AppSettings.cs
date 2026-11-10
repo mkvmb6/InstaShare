@@ -16,6 +16,7 @@ namespace InstaShare.Services
         public bool KeepRunningInTray { get; set; } = true;
         public bool GlobalHotkey { get; set; }
         public bool TrayHintShown { get; set; }
+        public bool AutoUpdate { get; set; } = true;
 
         public static AppSettings Load(string path)
         {

@@ -22,6 +22,7 @@ namespace InstaShare
         private MainWindow? _window;
         private MainViewModel? _viewModel;
         private SelectionBatcher? _selection;
+        private UpdateViewModel? _updates;
 
         internal static void ApplyTheme(AppTheme theme) =>
             Current.ThemeMode = theme switch
@@ -36,6 +37,11 @@ namespace InstaShare
             if (e.Args.Contains(Installer.UninstallArgument))
             {
                 await RunUninstall();
+                return;
+            }
+            if (Updater.ParseApplyArguments(e.Args, out var restart) is { } oldProcess)
+            {
+                await RunUpdate(oldProcess, restart);
                 return;
             }
             if (Installer.ShouldOfferInstall(e.Args))
@@ -68,6 +74,12 @@ namespace InstaShare
             var history = new ShareHistory(fileManager, AppPaths.HistoryFile, AppPaths.LegacyHistoryFile);
             var settingsViewModel = new SettingsViewModel(settings, AppPaths.SettingsFile, apiKey);
             _viewModel = new MainViewModel(fileManager, history, settingsViewModel);
+
+            var updater = new Updater(new System.Net.Http.HttpClient(), Constants.GitHubRepo, Installer.CurrentVersion, AppPaths.UpdateDirectory);
+            _updates = new UpdateViewModel(updater, () => _viewModel.HasActiveTransfers, ExitApp,
+                enabled: Installer.IsInstalledCopy, autoUpdate: () => settingsViewModel.AutoUpdate);
+            _updates.Ready += version => Toasts.UpdateReady(version);
+            settingsViewModel.Updates = _updates;
 
             _selection = new SelectionBatcher(SelectionQuietTime, SelectionMaxWait,
                 paths => Dispatcher.InvokeAsync(() =>
@@ -112,6 +124,9 @@ namespace InstaShare
                 _window.ShowAndActivate();
             HandleArguments(e.Args);
             _ = _viewModel.StartAsync();
+            _updates.Start();
+            if (e.Args.Contains(Updater.UpdatedArgument))
+                Toasts.Info("InstaShare updated", $"You're now on version {Installer.CurrentVersion.ToString(3)}.");
         }
 
         /// <summary>
@@ -180,6 +195,9 @@ namespace InstaShare
                     if (!ClipboardService.TrySetText(link))
                         _window!.ShowAndActivate();
                     break;
+                case Toasts.RestartToUpdate:
+                    _updates?.Restart();
+                    break;
                 case Toasts.OpenLink when link != null:
                     try
                     {
@@ -215,9 +233,30 @@ namespace InstaShare
             Shutdown();
         }
 
+        /// <summary>
+        /// Run by an exe the updater downloaded. Nothing is shown; problems go to a notification.
+        /// </summary>
+        private async Task RunUpdate(int oldProcess, bool restart)
+        {
+            try
+            {
+                await Installer.ApplyUpdate(oldProcess, restart);
+            }
+            catch (Exception ex)
+            {
+                Toasts.Info("InstaShare couldn't update", $"{ex.Message} It will try again later.");
+                if (restart && System.IO.File.Exists(Installer.InstalledExe))
+                    Installer.LaunchInstalled([]);
+            }
+            Shutdown();
+        }
+
         private void ExitApp()
         {
             _viewModel?.Stop();
+            _updates?.Stop();
+            // A downloaded update is installed as the app exits, so the next start runs it.
+            _updates?.InstallOnExit();
             Shutdown();
         }
 

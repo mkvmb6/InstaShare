@@ -12,6 +12,7 @@ namespace InstaShare.Services
         public const string OpenApp = "open";
         public const string CopyLink = "copy";
         public const string OpenLink = "browse";
+        public const string RestartToUpdate = "update";
 
         public static void UploadComplete(string name, string link, int failedFiles) =>
             TryShow(new ToastContentBuilder()
@@ -26,6 +27,14 @@ namespace InstaShare.Services
                 .AddArgument(ActionKey, OpenApp)
                 .AddText("Upload failed")
                 .AddText($"{name}: {error}"));
+
+        public static void UpdateReady(Version version) =>
+            TryShow(new ToastContentBuilder()
+                .AddArgument(ActionKey, OpenApp)
+                .AddText("InstaShare update ready")
+                .AddText($"Version {version.ToString(3)} installs when you restart InstaShare.")
+                .AddButton(new ToastButton().SetContent("Restart now").AddArgument(ActionKey, RestartToUpdate))
+                .AddButton(new ToastButton().SetContent("Later").SetDismissActivation()));
 
         public static void Info(string title, string message) =>
             TryShow(new ToastContentBuilder()
